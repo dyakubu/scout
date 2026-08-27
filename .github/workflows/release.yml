@@ -1,0 +1,64 @@
+name: release
+
+# Builds a self-contained scout archive per platform (binary + model +
+# tokenizer + onnxruntime, see scripts/package-release.sh) and attaches them
+# as draft release assets. CGO rules out cross-compiling from one machine,
+# so each platform is built natively on its own runner.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # Apple Silicon runner
+            goos: darwin
+            goarch: arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Fetch native dependencies (onnxruntime, tokenizers)
+        run: scripts/fetch-deps.sh
+
+      - name: Build and package release archive
+        run: VERSION=${{ github.ref_name }} scripts/package-release.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scout-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # Draft, not published, so the release notes and assets get a manual
+      # once-over before anyone can download them.
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/*
