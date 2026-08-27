@@ -1,16 +1,12 @@
 package config
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 )
-
-//go:embed scoutconfig.toml
-var defaultConfig []byte
 
 type Config struct {
 	Embedder EmbedderConfig `toml:"embedder"`
@@ -97,7 +93,7 @@ func OpenLog() (*os.File, error) {
 
 // Load reads scout's global config for normal runtime use, writing the
 // embedded default to disk first if no config file exists yet, and
-// resolving DB.Path to an absolute path.
+// resolving DB.Path and the embedder's asset paths to absolute paths.
 func Load() (*Config, error) {
 	cfg, path, err := loadRaw()
 	if err != nil {
@@ -108,7 +104,59 @@ func Load() (*Config, error) {
 		cfg.DB.Path = filepath.Join(filepath.Dir(path), cfg.DB.Path)
 	}
 
+	if err := resolveEmbedderPaths(&cfg.Embedder); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// resolveEmbedderPaths makes the embedder's asset paths absolute,
+// resolving relative ones against the running binary's own directory -
+// not the working directory, and not the config directory used for
+// DB.Path. The model, tokenizer, and onnxruntime library ship alongside
+// the binary itself (see scout's release archive layout), so that's what
+// a relative path here is relative to.
+func resolveEmbedderPaths(cfg *EmbedderConfig) error {
+	if filepath.IsAbs(cfg.ModelPath) && filepath.IsAbs(cfg.TokenizerPath) && filepath.IsAbs(cfg.OrtLibraryPath) {
+		return nil
+	}
+
+	dir, err := execDir()
+	if err != nil {
+		return fmt.Errorf("resolving embedder asset paths: %w", err)
+	}
+
+	if !filepath.IsAbs(cfg.ModelPath) {
+		cfg.ModelPath = filepath.Join(dir, cfg.ModelPath)
+	}
+	if !filepath.IsAbs(cfg.TokenizerPath) {
+		cfg.TokenizerPath = filepath.Join(dir, cfg.TokenizerPath)
+	}
+	if !filepath.IsAbs(cfg.OrtLibraryPath) {
+		cfg.OrtLibraryPath = filepath.Join(dir, cfg.OrtLibraryPath)
+	}
+
+	return nil
+}
+
+// execDir returns the directory containing the running scout binary.
+// Symlinks are resolved first because package managers (e.g. Homebrew)
+// install the real binary under a versioned path and only symlink it
+// onto PATH - without this, execDir would return the symlink's directory
+// instead of the one the bundled assets actually live in.
+func execDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolving executable path: %w", err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", fmt.Errorf("resolving executable symlinks: %w", err)
+	}
+
+	return filepath.Dir(resolved), nil
 }
 
 // LoadForEdit reads the config file exactly as stored on disk, without

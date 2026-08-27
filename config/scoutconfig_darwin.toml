@@ -2,6 +2,9 @@
 # <os user config dir>/scout/scoutconfig.toml - edit freely.
 
 [embedder]
+# Relative paths here are resolved against the running scout binary's own
+# directory (not the working directory), since these assets ship
+# alongside the binary in scout's distributed archive.
 model_path       = "models/model_qint8_avx512_vnni.onnx"
 tokenizer_path   = "models/tokenizer.json"
 ort_library_path = "third_party/onnxruntime/libonnxruntime.dylib"

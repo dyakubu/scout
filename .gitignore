@@ -11,3 +11,6 @@
 
 # Native deps (onnxruntime, tokenizers) fetched locally, not committed.
 /third_party/
+
+# Packaged release archives (scripts/package-release.sh output).
+/dist/

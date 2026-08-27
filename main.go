@@ -21,21 +21,11 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-func main() {
+// version is stamped at build time via -ldflags "-X main.version=...";
+// left as "dev" for local builds that don't pass it.
+var version = "dev"
 
-	args := os.Args
-
-	commandMap := map[string]commands.Command{
-		"find":   commands.Find,
-		"index":  commands.Index,
-		"help":   commands.Help,
-		"sync":   commands.Sync,
-		"config": commands.Config,
-	}
-
-	if len(args) < 2 {
-
-		usage := `
+const usage = `
 		Usage:
 		scout <command> [arguments]
 
@@ -45,20 +35,31 @@ func main() {
 		sync       Synchronize the index
 		config     View or change scout's configuration
 		clean      Remove the search index and log, for a fresh start
+		version    Print scout's version
 		help       Show help
 
 		`
+
+func main() {
+
+	args := os.Args
+
+	if len(args) < 2 {
 		fmt.Println(usage)
-
 		return
-
 	}
 
-	// clean only ever removes scout's own generated files - it doesn't
-	// need the database, embedder, or searcher, so it's handled here,
-	// before any of their (slow) setup, rather than paying that cost just
-	// to delete two files. It isn't in commandMap for the same reason: it
-	// doesn't fit the Command signature every other command shares.
+	// version and help dont need any dependency setup
+	switch args[1] {
+	case "version":
+		fmt.Println("scout " + version)
+		return
+	case "help":
+		fmt.Println(usage)
+		return
+	}
+
+	// clean only needs config
 	if args[1] == "clean" {
 		cfg, err := config.Load()
 		if err != nil {
@@ -73,6 +74,14 @@ func main() {
 
 		fmt.Print("clean run completed")
 		return
+	}
+
+	// Commands that require dependency setup
+	commandMap := map[string]commands.Command{
+		"find":   commands.Find,
+		"index":  commands.Index,
+		"sync":   commands.Sync,
+		"config": commands.Config,
 	}
 
 	cmd, ok := commandMap[args[1]]
