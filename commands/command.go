@@ -3,8 +3,8 @@ package commands
 import (
 	"context"
 
-	"github.com/daniel13112001/scout/app"
-	"github.com/daniel13112001/scout/cli"
+	"github.com/dyakubu/scout/app"
+	"github.com/dyakubu/scout/cli"
 )
 
 type Command func(context.Context, cli.ParsedArgs, app.Dependencies) error

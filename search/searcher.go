@@ -10,7 +10,7 @@ import (
 	"time"
 
 	vecembed "github.com/asg017/sqlite-vec-go-bindings/ncruces"
-	"github.com/daniel13112001/scout/embedder"
+	"github.com/dyakubu/scout/embedder"
 )
 
 const (

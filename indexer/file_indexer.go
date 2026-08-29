@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/daniel13112001/scout/config"
-	"github.com/daniel13112001/scout/embedder"
+	"github.com/dyakubu/scout/config"
+	"github.com/dyakubu/scout/embedder"
 )
 
 const (

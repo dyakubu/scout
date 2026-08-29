@@ -7,14 +7,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/daniel13112001/scout/app"
-	"github.com/daniel13112001/scout/cli"
-	"github.com/daniel13112001/scout/commands"
-	"github.com/daniel13112001/scout/config"
-	scoutdb "github.com/daniel13112001/scout/db"
-	"github.com/daniel13112001/scout/embedder"
-	"github.com/daniel13112001/scout/indexer"
-	"github.com/daniel13112001/scout/search"
+	"github.com/dyakubu/scout/app"
+	"github.com/dyakubu/scout/cli"
+	"github.com/dyakubu/scout/commands"
+	"github.com/dyakubu/scout/config"
+	scoutdb "github.com/dyakubu/scout/db"
+	"github.com/dyakubu/scout/embedder"
+	"github.com/dyakubu/scout/indexer"
+	"github.com/dyakubu/scout/search"
 
 	"database/sql"
 

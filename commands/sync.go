@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"context"
 
-	"github.com/daniel13112001/scout/cli"
-	"github.com/daniel13112001/scout/app"
+	"github.com/dyakubu/scout/cli"
+	"github.com/dyakubu/scout/app"
 )
 
 type syncCommandOptions struct {

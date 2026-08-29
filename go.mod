@@ -1,4 +1,4 @@
-module github.com/daniel13112001/scout
+module github.com/dyakubu/scout
 
 go 1.25.4
 

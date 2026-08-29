@@ -3,8 +3,8 @@ package app
 import (
 	"log"
 
-	"github.com/daniel13112001/scout/indexer"
-	"github.com/daniel13112001/scout/search"
+	"github.com/dyakubu/scout/indexer"
+	"github.com/dyakubu/scout/search"
 )
 
 type Dependencies struct {

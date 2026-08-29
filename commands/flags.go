@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/daniel13112001/scout/cli"
+	"github.com/dyakubu/scout/cli"
 )
 
 // boolFlag reads a boolean flag from parsed args, returning def if the flag

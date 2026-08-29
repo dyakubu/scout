@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/daniel13112001/scout/app"
-	"github.com/daniel13112001/scout/cli"
-	"github.com/daniel13112001/scout/search"
+	"github.com/dyakubu/scout/app"
+	"github.com/dyakubu/scout/cli"
+	"github.com/dyakubu/scout/search"
 )
 
 func Find(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error {

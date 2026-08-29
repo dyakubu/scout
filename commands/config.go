@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/daniel13112001/scout/app"
-	"github.com/daniel13112001/scout/cli"
-	"github.com/daniel13112001/scout/config"
+	"github.com/dyakubu/scout/app"
+	"github.com/dyakubu/scout/cli"
+	"github.com/dyakubu/scout/config"
 )
 
 // Config implements "scout config", "scout config path", "scout config get

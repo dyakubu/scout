@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/daniel13112001/scout/config"
+	"github.com/dyakubu/scout/config"
 )
 
 // Clean removes scout's generated artifacts - the search index and trace
