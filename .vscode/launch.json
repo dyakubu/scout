@@ -40,5 +40,29 @@
 
             ]
         },
+        {
+            "name": "scout config",
+            "type": "go",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.go",
+            "args": [
+                "config",
+                // "path",
+                // "get",
+                // "media.model_dir",
+                // "set",
+                // "media.model_dir",
+                // "/path/to/model/dir",
+            ]
+        },
+        {
+            "name": "scout clean",
+            "type": "go",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.go",
+            "args": [
+                "clean"
+            ]
+        },
     ]
 }
