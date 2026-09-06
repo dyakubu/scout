@@ -68,4 +68,10 @@ func printIndexSummary(stats indexer.IndexStats) {
 	if stats.Errors > 0 {
 		fmt.Printf("  %d error(s) - see above\n", stats.Errors)
 	}
+	if stats.MediaFilesIndexed > 0 {
+		fmt.Printf("  %d media file(s) embedded\n", stats.MediaFilesIndexed)
+	}
+	if stats.MediaFilesFiltered > 0 {
+		fmt.Printf("  %d media file(s) skipped (no media worker configured)\n", stats.MediaFilesFiltered)
+	}
 }

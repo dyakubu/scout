@@ -31,13 +31,29 @@ const (
 
 	fileWorkers  = 4
 	writerBuffer = 64
+
+	// mediaQueueSize bounds how many discovered media files can be waiting
+	// for the single media goroutine before the walk blocks on sending to
+	// it. Small on purpose: the media worker subprocess behind
+	// FileIndexer.MediaEmbedder only usefully does one thing at a time
+	// (see mediaworker.Client), so this is a queue in front of a single
+	// consumer, not a pool to size up.
+	mediaQueueSize = 16
 )
 
 type FileIndexer struct {
 	Db          *sql.DB
 	Embedder    embedder.Embedder
 	IndexConfig config.IndexConfig
-	Logger      *log.Logger
+
+	// MediaConfig and MediaEmbedder are both optional together: a nil
+	// MediaEmbedder means no media support is available (no Python
+	// worker/model configured), in which case matching media files are
+	// counted as filtered rather than erroring the run.
+	MediaConfig   config.MediaConfig
+	MediaEmbedder embedder.MediaEmbedder
+
+	Logger *log.Logger
 }
 
 type ProcessFileResult struct {
@@ -57,8 +73,18 @@ type IndexStats struct {
 	FilesTooLarge  int
 	FilesFiltered  int
 	ChunksEmbedded int
-	Errors         int
-	Elapsed        time.Duration
+
+	// MediaFilesIndexed/MediaFilesFiltered mirror FilesIndexed/FilesFiltered
+	// for media files. Skipped-too-large and skipped-unchanged media files
+	// share FilesTooLarge/FilesUnchanged above rather than getting their
+	// own counters, since those checks mean the same thing regardless of
+	// file kind. MediaFilesFiltered specifically counts media-extension
+	// files that had no MediaEmbedder available to handle them.
+	MediaFilesIndexed  int
+	MediaFilesFiltered int
+
+	Errors  int
+	Elapsed time.Duration
 }
 
 // statsAccumulator is IndexStats' concurrency-safe counterpart, updated
@@ -70,18 +96,24 @@ type statsAccumulator struct {
 	filesTooLarge  atomic.Int64
 	filesFiltered  atomic.Int64
 	chunksEmbedded atomic.Int64
-	errors         atomic.Int64
+
+	mediaFilesIndexed  atomic.Int64
+	mediaFilesFiltered atomic.Int64
+
+	errors atomic.Int64
 }
 
 func (s *statsAccumulator) result(elapsed time.Duration) IndexStats {
 	return IndexStats{
-		FilesIndexed:   int(s.filesIndexed.Load()),
-		FilesUnchanged: int(s.filesUnchanged.Load()),
-		FilesTooLarge:  int(s.filesTooLarge.Load()),
-		FilesFiltered:  int(s.filesFiltered.Load()),
-		ChunksEmbedded: int(s.chunksEmbedded.Load()),
-		Errors:         int(s.errors.Load()),
-		Elapsed:        elapsed,
+		FilesIndexed:       int(s.filesIndexed.Load()),
+		FilesUnchanged:     int(s.filesUnchanged.Load()),
+		FilesTooLarge:      int(s.filesTooLarge.Load()),
+		FilesFiltered:      int(s.filesFiltered.Load()),
+		ChunksEmbedded:     int(s.chunksEmbedded.Load()),
+		MediaFilesIndexed:  int(s.mediaFilesIndexed.Load()),
+		MediaFilesFiltered: int(s.mediaFilesFiltered.Load()),
+		Errors:             int(s.errors.Load()),
+		Elapsed:            elapsed,
 	}
 }
 
@@ -127,28 +159,51 @@ func (fi *FileIndexer) shouldSkipDir(rootDir, path, name string, gitignoreRules 
 	return matchesGitignore(gitignoreRules, rootDir, path, true)
 }
 
-// shouldIndexFile reports whether a file passes IndexConfig.IgnorePatterns
-// and IndexConfig.AllowedExtensions, and isn't excluded by the root
-// .gitignore.
-func (fi *FileIndexer) shouldIndexFile(rootDir, path, name string, gitignoreRules []gitignoreRule) bool {
+// fileKind is the result of classifying one file during a directory walk.
+type fileKind int
+
+const (
+	// fileKindNone means the file is excluded (gitignore, ignore pattern,
+	// or an extension in neither allowed-extensions list) and should be
+	// skipped entirely.
+	fileKindNone fileKind = iota
+	fileKindText
+	fileKindMedia
+)
+
+// classifyFile reports how a file should be routed during a directory
+// walk: to the text pipeline, the media pipeline, or excluded entirely.
+// IgnorePatterns and the root .gitignore apply the same way regardless of
+// kind; which of IndexConfig.AllowedExtensions or
+// MediaConfig.AllowedExtensions matches the file's extension decides text
+// vs. media (checked in that order, so a name landing in both lists -
+// which none do by default - would be treated as text).
+func (fi *FileIndexer) classifyFile(rootDir, path, name string, gitignoreRules []gitignoreRule) fileKind {
 	if matchesGitignore(gitignoreRules, rootDir, path, false) {
-		return false
+		return fileKindNone
 	}
 
 	for _, pattern := range fi.IndexConfig.IgnorePatterns {
 		if matched, _ := filepath.Match(pattern, name); matched {
-			return false
+			return fileKindNone
 		}
 	}
 
 	ext := strings.ToLower(filepath.Ext(name))
+
 	for _, allowed := range fi.IndexConfig.AllowedExtensions {
 		if ext == strings.ToLower(allowed) {
-			return true
+			return fileKindText
 		}
 	}
 
-	return false
+	for _, allowed := range fi.MediaConfig.AllowedExtensions {
+		if ext == strings.ToLower(allowed) {
+			return fileKindMedia
+		}
+	}
+
+	return fileKindNone
 }
 
 // maxFileSizeBytes returns the configured max file size in bytes, or 0 if
@@ -186,6 +241,7 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 	var stats statsAccumulator
 
 	files := make(chan string)
+	mediaJobs := make(chan string, mediaQueueSize)
 	errCh := make(chan error, 1)
 
 	// All file workers emit through this single writer, which is the only
@@ -241,6 +297,40 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 		}()
 	}
 
+	// Exactly one goroutine for media, distinct from the fileWorkers pool
+	// above: the worker subprocess behind MediaEmbedder only usefully
+	// handles one request at a time (see mediaworker.Client), so letting
+	// general workers race to call it would buy no parallelism while
+	// risking a slow media file (video, eventually) tying up a slot that
+	// should be processing text files.
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		for path := range mediaJobs {
+			res, err := fi.processMediaFile(path, writer)
+			if err != nil {
+				stats.errors.Add(1)
+				fi.Logger.Printf("error processing %s: %v", path, err)
+				select {
+				case errCh <- err:
+				default:
+				}
+				continue
+			}
+
+			switch {
+			case res.Skipped:
+				stats.filesTooLarge.Add(1)
+			case res.Unchanged:
+				stats.filesUnchanged.Add(1)
+			default:
+				stats.mediaFilesIndexed.Add(1)
+			}
+		}
+	}()
+
 	walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -258,25 +348,33 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 			return nil
 		}
 
-		if !fi.shouldIndexFile(dir, path, d.Name(), gitignoreRules) {
+		switch fi.classifyFile(dir, path, d.Name(), gitignoreRules) {
+		case fileKindText:
+			files <- path
+		case fileKindMedia:
+			if fi.MediaEmbedder == nil {
+				stats.mediaFilesFiltered.Add(1)
+				return nil
+			}
+			mediaJobs <- path
+		default:
 			stats.filesFiltered.Add(1)
-			return nil
 		}
 
-		files <- path
 		return nil
 	})
 
 	close(files)
+	close(mediaJobs)
 	wg.Wait()
 
 	writerErr := writer.close()
 
 	result := stats.result(time.Since(start))
 
-	fi.Logger.Printf("index complete: dir=%s indexed=%d unchanged=%d too_large=%d filtered=%d chunks_embedded=%d errors=%d elapsed=%s",
+	fi.Logger.Printf("index complete: dir=%s indexed=%d unchanged=%d too_large=%d filtered=%d chunks_embedded=%d media_indexed=%d media_filtered=%d errors=%d elapsed=%s",
 		dir, result.FilesIndexed, result.FilesUnchanged, result.FilesTooLarge, result.FilesFiltered,
-		result.ChunksEmbedded, result.Errors, result.Elapsed)
+		result.ChunksEmbedded, result.MediaFilesIndexed, result.MediaFilesFiltered, result.Errors, result.Elapsed)
 
 	if walkErr != nil {
 		return result, walkErr
@@ -403,6 +501,70 @@ func (fi *FileIndexer) processFile(path string, emitter Emitter) (ProcessFileRes
 		path, res.ChunksEmbedded, embedElapsed, time.Since(processStart))
 
 	return res, nil
+}
+
+// processMediaFile embeds path via fi.MediaEmbedder and emits the result,
+// reusing the same skip-if-too-large/skip-if-unchanged checks processFile
+// uses for text. Only called when fi.MediaEmbedder is non-nil - the walk
+// step in IndexDirectory filters out media files before this is reached
+// otherwise. An image is a single embedded unit (frame_index 0, no
+// timestamps), unlike a future video's multiple sampled frames.
+func (fi *FileIndexer) processMediaFile(path string, emitter Emitter) (ProcessFileResult, error) {
+	processStart := time.Now()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return ProcessFileResult{}, err
+	}
+
+	if maxSize := fi.maxFileSizeBytes(); maxSize > 0 && info.Size() > maxSize {
+		return ProcessFileResult{Skipped: true}, nil
+	}
+
+	modifiedAt := info.ModTime().Unix()
+
+	unchanged, err := fi.isUnchanged(path, modifiedAt)
+	if err != nil {
+		return ProcessFileResult{}, err
+	}
+	if unchanged {
+		return ProcessFileResult{Unchanged: true}, nil
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ProcessFileResult{}, err
+	}
+
+	fileHashSum := sha256.Sum256(raw)
+	fileHash := fileHashSum[:]
+
+	embedStart := time.Now()
+	vector, err := fi.MediaEmbedder.EmbedImage(path)
+	embedElapsed := time.Since(embedStart)
+	if err != nil {
+		return ProcessFileResult{}, fmt.Errorf("embedding image: %w", err)
+	}
+
+	record := MediaRecord{
+		Path:       path,
+		ModifiedAt: modifiedAt,
+		FileHash:   fileHash,
+		Embeddings: []MediaEmbeddingRecord{{
+			FrameIndex:     0,
+			ContentHash:    fileHash,
+			EmbeddingModel: fi.MediaEmbedder.ModelID(),
+			Embedding:      vector,
+		}},
+	}
+
+	if err := emitter.EmitMedia(record); err != nil {
+		return ProcessFileResult{}, fmt.Errorf("writing media embedding: %w", err)
+	}
+
+	fi.Logger.Printf("processed %s: media embed=%s total=%s", path, embedElapsed, time.Since(processStart))
+
+	return ProcessFileResult{}, nil
 }
 
 // isUnchanged reports whether path is already indexed with this exact

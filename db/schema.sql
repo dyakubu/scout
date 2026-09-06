@@ -42,3 +42,29 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
     embedding float[384]
 );
+
+-- One row per embedded "unit" of a media file: exactly one row for a
+-- still image (frame_index = 0, start_ms/end_ms NULL), one row per sampled
+-- frame for a future video (real timestamps) - the same one-to-many
+-- shape chunks already uses for text, sized up front so video support
+-- doesn't require a migration later.
+CREATE TABLE IF NOT EXISTS media_embeddings (
+    id INTEGER PRIMARY KEY,
+    file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    frame_index INTEGER NOT NULL DEFAULT 0,
+    start_ms INTEGER,
+    end_ms INTEGER,
+    -- Per-embedding content hash (sha256, 32 bytes) - the whole file's
+    -- bytes for an image, a given frame's bytes for video - used to skip
+    -- re-embedding on a reindex when unchanged.
+    content_hash BLOB NOT NULL,
+    embedding_model TEXT NOT NULL,
+    UNIQUE(file_id, frame_index)
+);
+
+-- float[512] matches the current (dummy) media model's output dimension -
+-- separate from vec_chunks because a vec0 table's vector width is fixed,
+-- and the media model's dimension differs from the text embedder's.
+CREATE VIRTUAL TABLE IF NOT EXISTS vec_media USING vec0(
+    embedding float[512]
+);

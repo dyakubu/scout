@@ -18,6 +18,10 @@ batch_size       = 32
 # against the running scout binary's own directory, same as above.
 model_dir = "models/media"
 
+# Closed list, same convention as index.allowed_extensions below: a file
+# is only sent to the media embedder if its extension is here.
+allowed_extensions = [".jpg", ".jpeg", ".png"]
+
 [db]
 # Relative paths are resolved against this config file's own directory.
 path = "scout.db"

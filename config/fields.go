@@ -46,6 +46,9 @@ var fields = map[string]field{
 		get: func(cfg *Config) string { return cfg.Media.ModelDir },
 		set: func(cfg *Config, value string) error { cfg.Media.ModelDir = value; return nil },
 	},
+	"media.allowed_extensions": {
+		get: func(cfg *Config) string { return strings.Join(cfg.Media.AllowedExtensions, ", ") },
+	},
 	"db.path": {
 		get: func(cfg *Config) string { return cfg.DB.Path },
 		set: func(cfg *Config, value string) error { cfg.DB.Path = value; return nil },

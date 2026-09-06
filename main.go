@@ -14,6 +14,7 @@ import (
 	scoutdb "github.com/dyakubu/scout/db"
 	"github.com/dyakubu/scout/embedder"
 	"github.com/dyakubu/scout/indexer"
+	"github.com/dyakubu/scout/mediaworker"
 	"github.com/dyakubu/scout/search"
 
 	"database/sql"
@@ -149,6 +150,26 @@ func main() {
 
 	logger.Printf("embedder loaded in %s", time.Since(embedderLoadStart))
 
+	// The media worker is optional: with no media.model_dir configured, or
+	// if the Python worker fails to start (missing python3, etc.), media
+	// files are simply skipped rather than aborting the run - text
+	// indexing must keep working regardless.
+	//
+	// "media/worker.py" is a repo-relative path, not resolved against the
+	// binary the way the embedder's asset paths are - there's no packaged
+	// distribution story for the media worker yet, so this only works run
+	// from the repo root during development.
+	var mediaEmbedder embedder.MediaEmbedder
+	if cfg.Media.ModelDir != "" {
+		mediaClient, err := mediaworker.Start("python3", "media/worker.py", cfg.Media.ModelDir, "media-dummy-v1")
+		if err != nil {
+			logger.Printf("media worker unavailable, continuing without media support: %v", err)
+		} else {
+			defer mediaClient.Close()
+			mediaEmbedder = mediaClient
+		}
+	}
+
 	searcher, err := search.NewSearcher(db, localEmbedder, logger)
 
 	if err != nil {
@@ -159,9 +180,16 @@ func main() {
 	// Construct application dependencies
 	ctx := context.Background()
 	deps := app.Dependencies{
-		FileIndexer: &indexer.FileIndexer{Db: db, Embedder: localEmbedder, IndexConfig: cfg.Index, Logger: logger},
-		Searcher:    searcher,
-		Logger:      logger,
+		FileIndexer: &indexer.FileIndexer{
+			Db:            db,
+			Embedder:      localEmbedder,
+			IndexConfig:   cfg.Index,
+			MediaConfig:   cfg.Media,
+			MediaEmbedder: mediaEmbedder,
+			Logger:        logger,
+		},
+		Searcher: searcher,
+		Logger:   logger,
 	}
 	parsedArgs, err := cli.Parse(args[2:])
 

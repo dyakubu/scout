@@ -36,46 +36,90 @@ type FileRecord struct {
 	Chunks []ChunkRecord
 }
 
-// Emitter accepts file records for persistence. Implementations must be
-// safe for concurrent calls to Emit from multiple goroutines.
-type Emitter interface {
-	Emit(record FileRecord) error
+// MediaEmbeddingRecord is a single embedded "unit" of a media file - the
+// whole file for a still image, or one sampled frame for a future video.
+type MediaEmbeddingRecord struct {
+	FrameIndex     int
+	StartMS        *int64
+	EndMS          *int64
+	ContentHash    []byte
+	EmbeddingModel string
+	Embedding      []float32
 }
 
-// dbWriter is the single writer to the database. File workers call Emit
-// concurrently, which just queues the record on a channel; one background
-// goroutine drains that channel and performs all the db.Exec calls, so the
-// database only ever sees a single writer at a time.
-type dbWriter struct {
-	db      *sql.DB
-	records chan FileRecord
-	done    chan struct{}
-	errCh   chan error
+// MediaRecord is one file's metadata plus its media embeddings, persisted
+// together as a single write - the media equivalent of FileRecord.
+type MediaRecord struct {
+	Path       string
+	ModifiedAt int64
+	FileHash   []byte
 
-	// Tracks which files' old chunks have already been cleared this run,
-	// keyed by files.id. A file can arrive across multiple FileRecords (see
-	// FileRecord), so clearing has to happen exactly once, on the first
-	// record seen for that file, not once per record.
+	Embeddings []MediaEmbeddingRecord
+}
+
+// Emitter accepts file and media records for persistence. Implementations
+// must be safe for concurrent calls to Emit/EmitMedia from multiple
+// goroutines.
+type Emitter interface {
+	Emit(record FileRecord) error
+	EmitMedia(record MediaRecord) error
+}
+
+// writeRequest is a tagged union of the two record kinds dbWriter accepts,
+// so both flow through the single writer goroutine over one channel rather
+// than requiring two independently-drained channels (which would allow
+// them to race against each other for no benefit, since the db.Exec calls
+// still have to happen one at a time either way).
+type writeRequest struct {
+	file  *FileRecord
+	media *MediaRecord
+}
+
+// dbWriter is the single writer to the database. File workers call
+// Emit/EmitMedia concurrently, which just queues the record on a channel;
+// one background goroutine drains that channel and performs all the
+// db.Exec calls, so the database only ever sees a single writer at a time.
+type dbWriter struct {
+	db       *sql.DB
+	requests chan writeRequest
+	done     chan struct{}
+	errCh    chan error
+
+	// Tracks which files' old chunks/media embeddings have already been
+	// cleared this run, keyed by files.id. A file can arrive across
+	// multiple FileRecords (see FileRecord), so clearing has to happen
+	// exactly once, on the first record seen for that file, not once per
+	// record. Shared between text and media records - a given file_id is
+	// one or the other, never both, so no cross-talk.
 	clearedFiles map[int64]bool
 }
 
 func newDBWriter(db *sql.DB, bufferSize int) *dbWriter {
 	return &dbWriter{
 		db:           db,
-		records:      make(chan FileRecord, bufferSize),
+		requests:     make(chan writeRequest, bufferSize),
 		done:         make(chan struct{}),
 		errCh:        make(chan error, 1),
 		clearedFiles: make(map[int64]bool),
 	}
 }
 
-// start launches the single writer goroutine. Must be called before Emit.
+// start launches the single writer goroutine. Must be called before
+// Emit/EmitMedia.
 func (w *dbWriter) start() {
 	go func() {
 		defer close(w.done)
 
-		for record := range w.records {
-			if err := w.write(record); err != nil {
+		for req := range w.requests {
+			var err error
+			switch {
+			case req.file != nil:
+				err = w.writeFile(*req.file)
+			case req.media != nil:
+				err = w.writeMedia(*req.media)
+			}
+
+			if err != nil {
 				select {
 				case w.errCh <- err:
 				default:
@@ -85,16 +129,24 @@ func (w *dbWriter) start() {
 	}()
 }
 
-// Emit queues a record for the writer goroutine. Safe to call concurrently.
+// Emit queues a file record for the writer goroutine. Safe to call
+// concurrently.
 func (w *dbWriter) Emit(record FileRecord) error {
-	w.records <- record
+	w.requests <- writeRequest{file: &record}
+	return nil
+}
+
+// EmitMedia queues a media record for the writer goroutine. Safe to call
+// concurrently.
+func (w *dbWriter) EmitMedia(record MediaRecord) error {
+	w.requests <- writeRequest{media: &record}
 	return nil
 }
 
 // close stops accepting new records, waits for the writer goroutine to
 // drain the queue, and returns the first write error encountered, if any.
 func (w *dbWriter) close() error {
-	close(w.records)
+	close(w.requests)
 	<-w.done
 
 	select {
@@ -105,7 +157,7 @@ func (w *dbWriter) close() error {
 	}
 }
 
-func (w *dbWriter) write(record FileRecord) error {
+func (w *dbWriter) writeFile(record FileRecord) error {
 	tx, err := w.db.Begin()
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -167,6 +219,73 @@ func (w *dbWriter) write(record FileRecord) error {
 
 		if _, err := tx.Exec(`INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)`, chunkID, embeddingBlob); err != nil {
 			return fmt.Errorf("inserting vector for chunk %d: %w", chunk.ChunkIndex, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (w *dbWriter) writeMedia(record MediaRecord) error {
+	tx, err := w.db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Same upsert-on-path pattern as writeFile - files is shared between
+	// text and media records.
+	var fileID int64
+	err = tx.QueryRow(
+		`INSERT INTO files (path, modified_at, file_hash, status, last_error)
+		 VALUES (?, ?, ?, 'ok', NULL)
+		 ON CONFLICT(path) DO UPDATE SET
+		   modified_at = excluded.modified_at,
+		   file_hash = excluded.file_hash,
+		   status = 'ok',
+		   last_error = NULL
+		 RETURNING id`,
+		record.Path, record.ModifiedAt, record.FileHash,
+	).Scan(&fileID)
+	if err != nil {
+		return fmt.Errorf("upserting file: %w", err)
+	}
+
+	if !w.clearedFiles[fileID] {
+		// vec_media has no real foreign key to media_embeddings (sqlite-vec's
+		// vec0 tables don't support them), so its rows must be deleted
+		// explicitly here rather than relying on ON DELETE CASCADE.
+		if _, err := tx.Exec(`DELETE FROM vec_media WHERE rowid IN (SELECT id FROM media_embeddings WHERE file_id = ?)`, fileID); err != nil {
+			return fmt.Errorf("clearing old media vectors: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM media_embeddings WHERE file_id = ?`, fileID); err != nil {
+			return fmt.Errorf("clearing old media embeddings: %w", err)
+		}
+		w.clearedFiles[fileID] = true
+	}
+
+	for _, embedding := range record.Embeddings {
+		res, err := tx.Exec(
+			`INSERT INTO media_embeddings (file_id, frame_index, start_ms, end_ms, content_hash, embedding_model)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			fileID, embedding.FrameIndex, embedding.StartMS, embedding.EndMS,
+			embedding.ContentHash, embedding.EmbeddingModel,
+		)
+		if err != nil {
+			return fmt.Errorf("inserting media embedding %d: %w", embedding.FrameIndex, err)
+		}
+
+		embeddingID, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("reading media embedding id: %w", err)
+		}
+
+		embeddingBlob, err := vecembed.SerializeFloat32(embedding.Embedding)
+		if err != nil {
+			return fmt.Errorf("serializing embedding: %w", err)
+		}
+
+		if _, err := tx.Exec(`INSERT INTO vec_media (rowid, embedding) VALUES (?, ?)`, embeddingID, embeddingBlob); err != nil {
+			return fmt.Errorf("inserting vector for media embedding %d: %w", embedding.FrameIndex, err)
 		}
 	}
 

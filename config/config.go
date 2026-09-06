@@ -28,6 +28,11 @@ type EmbedderConfig struct {
 // etc.) within it, and downloads them there itself if missing.
 type MediaConfig struct {
 	ModelDir string `toml:"model_dir"`
+
+	// AllowedExtensions is a closed list, same convention as
+	// IndexConfig.AllowedExtensions: a file is only routed to the media
+	// embedder if its extension is here.
+	AllowedExtensions []string `toml:"allowed_extensions"`
 }
 
 type DBConfig struct {
