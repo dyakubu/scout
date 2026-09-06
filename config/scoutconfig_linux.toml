@@ -10,6 +10,14 @@ tokenizer_path   = "models/tokenizer.json"
 ort_library_path = "third_party/onnxruntime/libonnxruntime.so"
 batch_size       = 32
 
+[media]
+# Directory the media (image/video) embedding worker reads its model from.
+# Unlike the embedder's individual file paths above, this is a directory -
+# the worker resolves whatever files it needs within it, downloading them
+# there itself on first run if missing. Relative paths are resolved
+# against the running scout binary's own directory, same as above.
+model_dir = "models/media"
+
 [db]
 # Relative paths are resolved against this config file's own directory.
 path = "scout.db"

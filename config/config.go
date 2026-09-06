@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	Embedder EmbedderConfig `toml:"embedder"`
+	Media    MediaConfig    `toml:"media"`
 	DB       DBConfig       `toml:"db"`
 	Index    IndexConfig    `toml:"index"`
 }
@@ -19,6 +20,14 @@ type EmbedderConfig struct {
 	TokenizerPath  string `toml:"tokenizer_path"`
 	OrtLibraryPath string `toml:"ort_library_path"`
 	BatchSize      int    `toml:"batch_size"`
+}
+
+// MediaConfig configures the media (image/video) embedding worker. Unlike
+// EmbedderConfig's individual file paths, ModelDir names a directory - the
+// worker resolves whatever files it needs (weights, preprocessor config,
+// etc.) within it, and downloads them there itself if missing.
+type MediaConfig struct {
+	ModelDir string `toml:"model_dir"`
 }
 
 type DBConfig struct {
@@ -108,6 +117,10 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if err := resolveMediaPaths(&cfg.Media); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
 }
 
@@ -136,6 +149,34 @@ func resolveEmbedderPaths(cfg *EmbedderConfig) error {
 	if !filepath.IsAbs(cfg.OrtLibraryPath) {
 		cfg.OrtLibraryPath = filepath.Join(dir, cfg.OrtLibraryPath)
 	}
+
+	return nil
+}
+
+// resolveMediaPaths makes the media model directory absolute, resolving a
+// relative path against the running binary's own directory - same
+// convention as resolveEmbedderPaths, and for the same reason: it's where
+// scout's bundled/downloaded assets live relative to the binary, not the
+// working directory.
+//
+// An empty ModelDir is left untouched rather than resolved to execDir
+// itself: existing config files predating this field decode it as "",
+// since loadRaw only ever writes the embedded default for a config file
+// that doesn't exist yet - it never backfills new fields into one that
+// already exists. Empty is treated as "not configured" so callers can
+// detect and handle that explicitly, instead of silently pointing the
+// media worker at the binary's own directory.
+func resolveMediaPaths(cfg *MediaConfig) error {
+	if cfg.ModelDir == "" || filepath.IsAbs(cfg.ModelDir) {
+		return nil
+	}
+
+	dir, err := execDir()
+	if err != nil {
+		return fmt.Errorf("resolving media model directory: %w", err)
+	}
+
+	cfg.ModelDir = filepath.Join(dir, cfg.ModelDir)
 
 	return nil
 }
