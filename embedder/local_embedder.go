@@ -7,7 +7,7 @@ import (
 	"math"
 	"os"
 
-	"github.com/daulet/tokenizers"
+	"github.com/dyakubu/scout/tokenizer"
 	ort "github.com/yalue/onnxruntime_go"
 )
 
@@ -28,7 +28,7 @@ type EmbedderConfig struct {
 }
 
 type LocalEmbedder struct {
-	tokenizer *tokenizers.Tokenizer
+	tokenizer tokenizer.Tokenizer
 	session   *ort.DynamicAdvancedSession
 	batchSize int
 	hiddenDim int64
@@ -41,27 +41,24 @@ func NewLocalEmbedder(cfg EmbedderConfig) (*LocalEmbedder, error) {
 		return nil, fmt.Errorf("hashing model file: %w", err)
 	}
 
-	tokenizer, err := tokenizers.FromFile(cfg.TokenizerPath)
+	tok, err := tokenizer.NewBertTokenizer(cfg.TokenizerPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading tokenizer: %w", err)
 	}
 
 	ort.SetSharedLibraryPath(cfg.OrtLibraryPath)
 	if err := ort.InitializeEnvironment(); err != nil {
-		tokenizer.Close()
 		return nil, fmt.Errorf("initializing onnxruntime environment: %w", err)
 	}
 
 	_, outputs, err := ort.GetInputOutputInfo(cfg.ModelPath)
 	if err != nil {
-		tokenizer.Close()
 		ort.DestroyEnvironment()
 		return nil, fmt.Errorf("reading model input/output info: %w", err)
 	}
 
 	hiddenDim, err := hiddenDimOf(outputs)
 	if err != nil {
-		tokenizer.Close()
 		ort.DestroyEnvironment()
 		return nil, err
 	}
@@ -73,13 +70,12 @@ func NewLocalEmbedder(cfg EmbedderConfig) (*LocalEmbedder, error) {
 		nil,
 	)
 	if err != nil {
-		tokenizer.Close()
 		ort.DestroyEnvironment()
 		return nil, fmt.Errorf("creating onnxruntime session: %w", err)
 	}
 
 	return &LocalEmbedder{
-		tokenizer: tokenizer,
+		tokenizer: tok,
 		session:   session,
 		batchSize: cfg.BatchSize,
 		hiddenDim: hiddenDim,
@@ -125,11 +121,13 @@ func hiddenDimOf(outputs []ort.InputOutputInfo) (int64, error) {
 	return 0, fmt.Errorf("model has no output named %q", outputName)
 }
 
-// Close releases the tokenizer, session, and onnxruntime resources held by e.
+// Close releases the session and onnxruntime resources held by e. The
+// tokenizer needs no explicit cleanup - it's plain Go memory, not a cgo
+// resource.
 func (e *LocalEmbedder) Close() error {
 	defer ort.DestroyEnvironment()
 	defer e.session.Destroy()
-	return e.tokenizer.Close()
+	return nil
 }
 
 // Embed tokenizes and embeds texts in one or more batches of size
@@ -167,12 +165,9 @@ func (e *LocalEmbedder) Embed(texts []string) ([][]float32, error) {
 func (e *LocalEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	batchLen := len(texts)
 
-	encodings := make([]tokenizers.Encoding, batchLen)
+	encodings := make([]tokenizer.Encoding, batchLen)
 	for i, text := range texts {
-		encodings[i] = e.tokenizer.EncodeWithOptions(text, true,
-			tokenizers.WithReturnAttentionMask(),
-			tokenizers.WithReturnTypeIDs(),
-		)
+		encodings[i] = e.tokenizer.Encode(text)
 	}
 
 	seqLen := len(encodings[0].IDs)
@@ -184,9 +179,9 @@ func (e *LocalEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	for i, enc := range encodings {
 		for j := range seqLen {
 			offset := i*seqLen + j
-			inputIDs[offset] = int64(enc.IDs[j])
-			attentionMask[offset] = int64(enc.AttentionMask[j])
-			tokenTypeIDs[offset] = int64(enc.TypeIDs[j])
+			inputIDs[offset] = enc.IDs[j]
+			attentionMask[offset] = enc.AttentionMask[j]
+			tokenTypeIDs[offset] = enc.TypeIDs[j]
 		}
 	}
 

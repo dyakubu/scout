@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds scout and assembles it, its model/tokenizer, and the onnxruntime
-# shared library it dlopens at runtime into one self-contained archive -
-# so `scout` runs fully offline immediately after being unpacked, with no
-# separate download step. Run scripts/fetch-deps.sh first.
+# Builds scout and assembles it, its model/tokenizer config, and the
+# onnxruntime shared library it dlopens at runtime into one self-contained
+# archive - so `scout` runs fully offline immediately after being
+# unpacked, with no separate download step. Run scripts/fetch-deps.sh
+# first.
 #
-# libtokenizers.a is deliberately NOT included: it's a build-time-only CGO
-# link dependency, already statically compiled into the scout binary, and
-# shipping it too would just be dead weight in the archive.
+# tokenizer.json is scout's own pure-Go tokenizer's vocab/config, not a
+# native library - no separate tokenizer runtime dependency ships here.
 #
 # Usage: VERSION=v0.1.0 scripts/package-release.sh
 

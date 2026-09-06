@@ -35,7 +35,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Fetch native dependencies (onnxruntime, tokenizers)
+      - name: Fetch native dependencies (onnxruntime)
         run: scripts/fetch-deps.sh
 
       - name: Build and package release archive
