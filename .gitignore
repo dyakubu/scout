@@ -14,3 +14,15 @@
 
 # Packaged release archives (scripts/package-release.sh output).
 /dist/
+
+# Python (media worker) build/runtime artifacts.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# CLIP weights downloaded into media.model_dir 
+/media/model/
