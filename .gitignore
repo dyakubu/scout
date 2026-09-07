@@ -24,5 +24,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# CLIP weights downloaded into media.model_dir 
+# CLIP weights downloaded into media.model_dir - covers both the current
+# default location and /models/media, an old default path that's no
+# longer used but may still exist on disk from before that default changed.
 /media/model/
+/models/media/

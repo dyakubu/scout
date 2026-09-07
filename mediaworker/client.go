@@ -12,11 +12,12 @@ import (
 	"sync"
 )
 
-// Job is one unit of work sent to the media worker.
+// Job is one unit of work sent to the media worker. ModelDir isn't part of
+// this - one worker process always serves one fixed model directory,
+// passed once as a --model-dir startup argument (see Start), not per job.
 type Job struct {
-	ID       string `json:"id"`
-	ModelDir string `json:"model_dir"`
-	Payload  string `json:"payload"`
+	ID      string `json:"id"`
+	Payload string `json:"payload"`
 }
 
 // Result is the media worker's response to one Job, matched to it by ID.
@@ -36,21 +37,32 @@ type Client struct {
 	stdin  io.WriteCloser
 	stdout *bufio.Scanner
 
-	modelDir string
-	modelID  string
+	modelID string
 
 	mu sync.Mutex
 }
 
-// Start launches the media worker as a subprocess (pythonPath scriptPath),
-// wiring its stdin/stdout for JSON-lines communication. The worker's
-// stderr is connected to this process's stderr so its own logging/errors
-// surface directly instead of being silently dropped. modelDir is sent
-// with every job; modelID is returned by ModelID() and is a caller-chosen
-// label for now (e.g. "media-dummy-v1") until a real model's ModelID can
-// be derived from its actual weights, the way embedder.LocalEmbedder does.
-func Start(pythonPath, scriptPath, modelDir, modelID string) (*Client, error) {
-	cmd := exec.Command(pythonPath, scriptPath)
+// Start launches the media worker as a subprocess, wiring its stdin/stdout
+// for JSON-lines communication and appending "--model-dir modelDir" to
+// command so the worker can load its model eagerly at startup rather than
+// waiting for the first job. command is the command line to run it with,
+// before that flag (e.g. []string{"python3", "media/worker.py"} for the
+// dependency-free dummy path, or []string{"uv", "run", "--project",
+// "media", "media/worker.py"} for real inference, which needs the media/
+// project's own virtualenv - the bare "python3" on PATH won't have
+// torch/transformers installed). The worker's stderr is connected to this
+// process's stderr so its own logging/errors surface directly instead of
+// being silently dropped. modelID is returned by ModelID() and is a
+// caller-chosen label for now (e.g. "openai/clip-vit-base-patch32") until
+// a real model's ModelID can be derived from its actual weights, the way
+// embedder.LocalEmbedder does.
+func Start(command []string, modelDir, modelID string) (*Client, error) {
+	if len(command) == 0 {
+		return nil, fmt.Errorf("command must not be empty")
+	}
+
+	args := append(append([]string{}, command[1:]...), "--model-dir", modelDir)
+	cmd := exec.Command(command[0], args...)
 	cmd.Stderr = os.Stderr
 
 	stdin, err := cmd.StdinPipe()
@@ -68,11 +80,10 @@ func Start(pythonPath, scriptPath, modelDir, modelID string) (*Client, error) {
 	}
 
 	return &Client{
-		cmd:      cmd,
-		stdin:    stdin,
-		stdout:   bufio.NewScanner(stdout),
-		modelDir: modelDir,
-		modelID:  modelID,
+		cmd:     cmd,
+		stdin:   stdin,
+		stdout:  bufio.NewScanner(stdout),
+		modelID: modelID,
 	}, nil
 }
 
@@ -84,7 +95,7 @@ func (c *Client) ModelID() string {
 // EmbedImage embeds a single image by round-tripping a Job through the
 // worker subprocess, using path as the job's ID.
 func (c *Client) EmbedImage(path string) ([]float32, error) {
-	result, err := c.SendJob(Job{ID: path, ModelDir: c.modelDir, Payload: path})
+	result, err := c.SendJob(Job{ID: path, Payload: path})
 	if err != nil {
 		return nil, err
 	}

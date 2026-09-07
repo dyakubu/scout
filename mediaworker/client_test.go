@@ -13,8 +13,11 @@ func TestSendJob_DummyRoundTrip(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not found on PATH")
 	}
+	// Real inference needs network access and heavy dependencies neither
+	// tests nor CI should require - see media/worker.py's SCOUT_MEDIA_DUMMY.
+	t.Setenv("SCOUT_MEDIA_DUMMY", "1")
 
-	client, err := Start("python3", scriptPath, "/fake/model/dir", "media-dummy-v1")
+	client, err := Start([]string{"python3", scriptPath}, "/fake/model/dir", "media-dummy-v1")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -25,9 +28,8 @@ func TestSendJob_DummyRoundTrip(t *testing.T) {
 	}
 
 	result, err := client.SendJob(Job{
-		ID:       "job-1",
-		ModelDir: "/fake/model/dir",
-		Payload:  "dummy",
+		ID:      "job-1",
+		Payload: "dummy",
 	})
 	if err != nil {
 		t.Fatalf("SendJob: %v", err)
@@ -48,8 +50,11 @@ func TestSendJob_MissingModelDir(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not found on PATH")
 	}
+	// Real inference needs network access and heavy dependencies neither
+	// tests nor CI should require - see media/worker.py's SCOUT_MEDIA_DUMMY.
+	t.Setenv("SCOUT_MEDIA_DUMMY", "1")
 
-	client, err := Start("python3", scriptPath, "", "media-dummy-v1")
+	client, err := Start([]string{"python3", scriptPath}, "", "media-dummy-v1")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -69,8 +74,11 @@ func TestEmbedImage(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not found on PATH")
 	}
+	// Real inference needs network access and heavy dependencies neither
+	// tests nor CI should require - see media/worker.py's SCOUT_MEDIA_DUMMY.
+	t.Setenv("SCOUT_MEDIA_DUMMY", "1")
 
-	client, err := Start("python3", scriptPath, "/fake/model/dir", "media-dummy-v1")
+	client, err := Start([]string{"python3", scriptPath}, "/fake/model/dir", "media-dummy-v1")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

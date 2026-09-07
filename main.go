@@ -150,18 +150,33 @@ func main() {
 
 	logger.Printf("embedder loaded in %s", time.Since(embedderLoadStart))
 
-	// The media worker is optional: with no media.model_dir configured, or
-	// if the Python worker fails to start (missing python3, etc.), media
-	// files are simply skipped rather than aborting the run - text
-	// indexing must keep working regardless.
+	// The media worker is optional, and only ever started for "index" -
+	// find/config/sync never touch MediaEmbedder, and the worker now loads
+	// its model eagerly at startup (see media/worker.py), so starting it
+	// for a command that will never use it would mean every scout command
+	// pays a multi-second model load - or a ~500MB download on a machine
+	// that's never fetched the model - for no reason. With no
+	// media.model_dir configured, or if the Python worker fails to start
+	// (uv not installed, `uv sync` never run in media/, etc.), media files
+	// are simply skipped rather than aborting the run - text indexing must
+	// keep working regardless.
 	//
-	// "media/worker.py" is a repo-relative path, not resolved against the
-	// binary the way the embedder's asset paths are - there's no packaged
-	// distribution story for the media worker yet, so this only works run
-	// from the repo root during development.
+	// Run via "uv run --project media media/worker.py" rather than a bare
+	// python3, since real inference needs the media/ project's own
+	// virtualenv (torch/transformers/etc.), not whatever's on PATH. Both
+	// paths in mediaCommand below are repo-relative, not resolved against
+	// the binary the way the embedder's asset paths are - there's no
+	// packaged distribution story for the media worker yet, so this only
+	// works run from the repo root during development.
+	// The model id is a caller-chosen label for now, not a hash of the
+	// actual model files the way LocalEmbedder.ModelID() hashes the ONNX
+	// file - see mediaworker.Start's doc comment.
+	const mediaModelID = "openai/clip-vit-base-patch32"
+
 	var mediaEmbedder embedder.MediaEmbedder
-	if cfg.Media.ModelDir != "" {
-		mediaClient, err := mediaworker.Start("python3", "media/worker.py", cfg.Media.ModelDir, "media-dummy-v1")
+	if args[1] == "index" && cfg.Media.ModelDir != "" {
+		mediaCommand := []string{"uv", "run", "--project", "media", "media/worker.py"}
+		mediaClient, err := mediaworker.Start(mediaCommand, cfg.Media.ModelDir, mediaModelID)
 		if err != nil {
 			logger.Printf("media worker unavailable, continuing without media support: %v", err)
 		} else {

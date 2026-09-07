@@ -11,12 +11,13 @@ ort_library_path = "third_party/onnxruntime/libonnxruntime.so"
 batch_size       = 32
 
 [media]
-# Directory the media (image/video) embedding worker reads its model from.
-# Unlike the embedder's individual file paths above, this is a directory -
-# the worker resolves whatever files it needs within it, downloading them
-# there itself on first run if missing. Relative paths are resolved
-# against the running scout binary's own directory, same as above.
-model_dir = "models/media"
+# Media (image/video) support is opt-in, off by default: empty means no
+# media worker is ever started, so a fresh install never tries to download
+# the (~500MB) model on its own. Set this to a directory (relative paths
+# resolve against the running scout binary's own directory, same as the
+# embedder paths above) to turn it on - the worker downloads its model
+# files there itself on first run if missing.
+model_dir = ""
 
 # Closed list, same convention as index.allowed_extensions below: a file
 # is only sent to the media embedder if its extension is here.
