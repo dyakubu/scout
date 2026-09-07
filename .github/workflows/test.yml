@@ -1,0 +1,45 @@
+name: test
+
+# Runs the test suite on every push and PR - separate from release.yml
+# (which only fires on a version tag and does a full packaged build).
+# CGO_ENABLED=1 is still required to even compile: commands/indexer/search
+# all transitively import embedder, which has a real cgo dependency
+# (onnxruntime_go), even though none of the current tests load the actual
+# ONNX model - so no scripts/fetch-deps.sh step is needed here, just a
+# working C compiler.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # See release.yml for why MSYS2 rather than Chocolatey's "mingw".
+      - name: Set up MSYS2 with MinGW-w64 (for cgo)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+
+      - name: Add MinGW-w64 to PATH
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+
+      - name: Run tests
+        shell: bash
+        env:
+          CGO_ENABLED: 1
+        run: go test ./...
