@@ -8,11 +8,20 @@ import (
 
 // sandboxHome points os.UserConfigDir() (and therefore every path this
 // package resolves) at a fresh temp directory, isolating each test from
-// the real user's config and from each other.
+// the real user's config and from each other. This needs every env var
+// os.UserConfigDir() might consult, not just $HOME - it resolves
+// differently per OS: macOS always uses $HOME (which is why HOME alone
+// was enough there), Linux/BSD prefer $XDG_CONFIG_HOME over $HOME/.config
+// if it's set at all (so a CI runner with XDG_CONFIG_HOME already set
+// would otherwise make every test share that one real, unsandboxed
+// directory instead of getting its own), and Windows ignores HOME
+// entirely in favor of %AppData%.
 func sandboxHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("AppData", home)
 	return home
 }
 
@@ -174,12 +183,17 @@ func TestResolveMediaPaths_EmptyStaysEmpty(t *testing.T) {
 }
 
 func TestResolveMediaPaths_AbsoluteUnchanged(t *testing.T) {
-	cfg := MediaConfig{ModelDir: "/already/absolute"}
+	// A literal "/already/absolute" isn't actually absolute per
+	// filepath.IsAbs on Windows (no drive letter) - t.TempDir() gives a
+	// real, OS-appropriate absolute path on whatever platform is running.
+	abs := filepath.Join(t.TempDir(), "already", "absolute")
+
+	cfg := MediaConfig{ModelDir: abs}
 	if err := resolveMediaPaths(&cfg); err != nil {
 		t.Fatalf("resolveMediaPaths: %v", err)
 	}
-	if cfg.ModelDir != "/already/absolute" {
-		t.Errorf("ModelDir = %q, want unchanged", cfg.ModelDir)
+	if cfg.ModelDir != abs {
+		t.Errorf("ModelDir = %q, want unchanged (%q)", cfg.ModelDir, abs)
 	}
 }
 

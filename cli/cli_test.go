@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -86,13 +87,19 @@ func TestParse_NoArgs(t *testing.T) {
 func TestExpandHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// os.UserHomeDir() (which ExpandHome uses) checks %USERPROFILE% on
+	// Windows, not $HOME - both need to be set for this to be sandboxed
+	// consistently across platforms.
+	t.Setenv("USERPROFILE", home)
 
 	tests := []struct {
 		in   string
 		want string
 	}{
 		{"~", home},
-		{"~/Documents", home + "/Documents"},
+		// filepath.Join, not string concatenation - ExpandHome joins with
+		// filepath.Join, which uses "\" on Windows, not "/".
+		{"~/Documents", filepath.Join(home, "Documents")},
 		{"/absolute/path", "/absolute/path"},
 		{"relative/path", "relative/path"},
 		{"", ""},

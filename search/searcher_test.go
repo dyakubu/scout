@@ -226,10 +226,20 @@ func TestSearch_RestrictFiltersByPath(t *testing.T) {
 		Vectors: map[string][]float32{"query": embeddertest.UnitVector(textDim, 0)},
 	}
 
-	inside := insertFile(t, db, "/repo/src/a.go")
-	// "/repo/src-old" is NOT under "/repo/src" - a naive strings.HasPrefix
-	// without the separator check would wrongly include it.
-	sibling := insertFile(t, db, "/repo/src-old/b.go")
+	// Search resolves Restrict via filepath.Abs and compares it against
+	// the stored path as a real filesystem path, so these need to be
+	// genuine, OS-native absolute paths (a hardcoded "/repo/..." literal
+	// isn't absolute per filepath.IsAbs on Windows) - built from the same
+	// real root so restrictDir and the file paths agree on separator style.
+	root := t.TempDir()
+	restrictDir := filepath.Join(root, "src")
+	insidePath := filepath.Join(restrictDir, "a.go")
+	// "src-old" is NOT under "src" - a naive strings.HasPrefix without the
+	// separator check would wrongly include it.
+	siblingPath := filepath.Join(root, "src-old", "b.go")
+
+	inside := insertFile(t, db, insidePath)
+	sibling := insertFile(t, db, siblingPath)
 	insertChunk(t, db, inside, 0, "inside src", emb.ModelID(), embeddertest.UnitVector(textDim, 0))
 	insertChunk(t, db, sibling, 0, "inside src-old", emb.ModelID(), embeddertest.UnitVector(textDim, 0))
 
@@ -238,7 +248,7 @@ func TestSearch_RestrictFiltersByPath(t *testing.T) {
 		t.Fatalf("NewSearcher: %v", err)
 	}
 
-	results, err := s.Search("query", Options{Restrict: "/repo/src"})
+	results, err := s.Search("query", Options{Restrict: restrictDir})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -246,8 +256,8 @@ func TestSearch_RestrictFiltersByPath(t *testing.T) {
 	if len(results.Files) != 1 {
 		t.Fatalf("len(Files) = %d, want 1", len(results.Files))
 	}
-	if results.Files[0].Path != "/repo/src/a.go" {
-		t.Errorf("Files[0].Path = %q, want /repo/src/a.go (not the src-old sibling)", results.Files[0].Path)
+	if results.Files[0].Path != insidePath {
+		t.Errorf("Files[0].Path = %q, want %q (not the src-old sibling)", results.Files[0].Path, insidePath)
 	}
 }
 
