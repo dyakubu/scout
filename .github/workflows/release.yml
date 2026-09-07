@@ -42,11 +42,28 @@ jobs:
       # not just a dynamically-loaded library), and Windows runners don't
       # ship a cgo-compatible C compiler by default the way macOS
       # (clang, via Xcode CLT) and Linux (gcc) runner images do.
-      - name: Set up MinGW-w64 (for cgo)
+      #
+      # msys2/setup-msys2, not Chocolatey's "mingw" package: the latter's
+      # own upgrade hook script (bundled in the choco package itself, not
+      # anything in this workflow) fails on current windows-latest images
+      # trying to remove a file its own installed layout no longer has -
+      # an upstream packaging bug, not something fixable from here.
+      # setup-msys2 manages its own toolchain independently of Chocolatey.
+      - name: Set up MSYS2 with MinGW-w64 (for cgo)
         if: matrix.goos == 'windows'
-        uses: egor-tensin/setup-mingw@v2
+        uses: msys2/setup-msys2@v2
         with:
-          platform: x64
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+
+      # setup-msys2 doesn't add its toolchain to the general Windows PATH -
+      # only to its own MSYS2 shell environment - so steps below running
+      # under `shell: bash` (Git Bash, not MSYS2's shell) need this added
+      # explicitly to find gcc.
+      - name: Add MinGW-w64 to PATH
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
 
       - name: Fetch native dependencies (onnxruntime)
         shell: bash
