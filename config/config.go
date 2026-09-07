@@ -13,6 +13,7 @@ type Config struct {
 	Media    MediaConfig    `toml:"media"`
 	DB       DBConfig       `toml:"db"`
 	Index    IndexConfig    `toml:"index"`
+	Search   SearchConfig   `toml:"search"`
 }
 
 type EmbedderConfig struct {
@@ -37,6 +38,15 @@ type MediaConfig struct {
 
 type DBConfig struct {
 	Path string `toml:"path"`
+}
+
+// SearchConfig configures scout find's default result counts.
+// MaxMediaResults is independent of MaxResults - the two are separate
+// result sets (matching files vs. matching media), never merged or
+// compared against each other.
+type SearchConfig struct {
+	MaxResults      int `toml:"max_results"`
+	MaxMediaResults int `toml:"max_media_results"`
 }
 
 type IndexConfig struct {

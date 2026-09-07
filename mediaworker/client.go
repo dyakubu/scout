@@ -16,7 +16,14 @@ import (
 // this - one worker process always serves one fixed model directory,
 // passed once as a --model-dir startup argument (see Start), not per job.
 type Job struct {
-	ID      string `json:"id"`
+	ID string `json:"id"`
+
+	// Kind selects which CLIP tower embeds Payload: "image" (a file path)
+	// or "text" (a search query). Both land in the same 512-dim CLIP
+	// space, but "text" is only ever used to embed a query for searching
+	// vec_media - indexed text file chunks are embedded entirely
+	// separately, by embedder.Embedder, never through this worker.
+	Kind    string `json:"kind"`
 	Payload string `json:"payload"`
 }
 
@@ -95,7 +102,23 @@ func (c *Client) ModelID() string {
 // EmbedImage embeds a single image by round-tripping a Job through the
 // worker subprocess, using path as the job's ID.
 func (c *Client) EmbedImage(path string) ([]float32, error) {
-	result, err := c.SendJob(Job{ID: path, Payload: path})
+	result, err := c.SendJob(Job{ID: path, Kind: "image", Payload: path})
+	if err != nil {
+		return nil, err
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("media worker: %s", *result.Error)
+	}
+
+	return result.Embedding, nil
+}
+
+// EmbedText embeds a search query into the same CLIP space EmbedImage's
+// results live in, so it's directly comparable to them - this is only
+// ever used to query vec_media, never to embed text file chunks.
+func (c *Client) EmbedText(query string) ([]float32, error) {
+	result, err := c.SendJob(Job{ID: query, Kind: "text", Payload: query})
 	if err != nil {
 		return nil, err
 	}

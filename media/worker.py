@@ -17,8 +17,14 @@ mediaworker/client_test.go) so the Go<->Python wiring can be exercised
 without network access or the real dependencies in pyproject.toml
 installed. Not a user-facing mode.
 
-Job:    {"id": str, "payload": str}
+Job:    {"id": str, "kind": "image" | "text", "payload": str}
 Result: {"id": str, "embedding": [float, ...] | null, "error": str | null}
+
+"kind" selects which CLIP tower embeds payload: "image" (a file path) via
+embed_image, or "text" (a search query) via embed_text. Both land in the
+same 512-dim CLIP space, but embed_text is only ever used to query
+vec_media - indexed text file chunks are embedded entirely separately, by
+the text embedder in embedder/, never by this worker.
 """
 
 import argparse
@@ -45,14 +51,23 @@ def handle(job: dict) -> dict:
     if DUMMY:
         return {"id": job_id, "embedding": [0.0] * EMBEDDING_DIM, "error": None}
 
-    image_path = job.get("payload")
-    if not image_path:
-        return {"id": job_id, "embedding": None, "error": "missing payload (image path)"}
+    payload = job.get("payload")
+    if not payload:
+        return {"id": job_id, "embedding": None, "error": "missing payload"}
+
+    kind = job.get("kind", "image")
 
     try:
-        from clip import embed_image
+        if kind == "text":
+            from clip import embed_text
 
-        embedding = embed_image(_model, _processor, image_path)
+            embedding = embed_text(_model, _processor, payload)
+        elif kind == "image":
+            from clip import embed_image
+
+            embedding = embed_image(_model, _processor, payload)
+        else:
+            return {"id": job_id, "embedding": None, "error": f"unknown kind {kind!r}"}
     except Exception as e:
         return {"id": job_id, "embedding": None, "error": str(e)}
 

@@ -53,10 +53,30 @@ def embed_image(model: CLIPModel, processor: CLIPProcessor, image_path: str) -> 
         # visual projection of it, then returns the whole output object).
         features = model.get_image_features(**inputs).pooler_output
 
+    return _normalize(features)
+
+
+def embed_text(model: CLIPModel, processor: CLIPProcessor, text: str) -> list[float]:
+    """Embeds a search query into CLIP's joint image/text space, so it's
+    directly comparable (cosine similarity) to embed_image's output for
+    stored images - this is the only way a text string becomes comparable
+    to a CLIP image embedding at all. Indexed text file chunks are still
+    embedded entirely separately, by the text embedder in embedder/ - this
+    function is only ever used to query vec_media, never vec_chunks.
+    """
+    inputs = processor(text=[text], return_tensors="pt", padding=True, truncation=True)
+
+    with torch.no_grad():
+        # Same BaseModelOutputWithPooling quirk as get_image_features - see
+        # CLIPModel.get_text_features's source.
+        features = model.get_text_features(**inputs).pooler_output
+
+    return _normalize(features)
+
+
+def _normalize(features):
     # L2-normalize so cosine similarity can be computed as a plain dot
     # product downstream - the same convention the text embedder already
-    # uses (see embedder/local_embedder.go's meanPool), needed if
-    # image and text embeddings are ever compared against each other.
+    # uses (see embedder/local_embedder.go's meanPool).
     features = features / features.norm(p=2, dim=-1, keepdim=True)
-
     return features[0].tolist()

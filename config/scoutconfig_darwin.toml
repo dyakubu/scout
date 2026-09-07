@@ -72,3 +72,11 @@ ignore_patterns = [
     ".env",
     ".env.*",
 ]
+
+[search]
+# Default result counts for `scout find`, overridable per-call with
+# --max/--media-max. The two are independent - matching files and matching
+# media are separate result sets, never merged or compared against each
+# other.
+max_results = 5
+max_media_results = 5

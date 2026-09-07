@@ -23,7 +23,10 @@ func Find(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error
 
 	query := args.Positional[0]
 
-	max := 5
+	// max/mediaMax are left at 0 (rather than a hardcoded default here) so
+	// Search falls back to whatever default the Searcher was configured
+	// with (see search.NewSearcher) when a flag isn't given.
+	var max, mediaMax int
 
 	if value, ok := args.Flags["max"]; ok {
 		parsedMax, err := strconv.Atoi(value)
@@ -33,6 +36,16 @@ func Find(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error
 		}
 
 		max = parsedMax
+	}
+
+	if value, ok := args.Flags["media-max"]; ok {
+		parsedMediaMax, err := strconv.Atoi(value)
+
+		if err != nil {
+			return fmt.Errorf("invalid value %q for --media-max: expected an integer", value)
+		}
+
+		mediaMax = parsedMediaMax
 	}
 
 	// --restrict alone (no value) means "restrict to the current
@@ -48,20 +61,30 @@ func Find(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error
 		return err
 	}
 
-	results, err := deps.Searcher.Search(query, search.Options{Max: max, Restrict: restrict})
+	results, err := deps.Searcher.Search(query, search.Options{Max: max, MediaMax: mediaMax, Restrict: restrict})
 
 	if err != nil {
 		return err
 	}
 
-	if len(results) == 0 {
+	if len(results.Files) == 0 && len(results.Media) == 0 {
 		fmt.Println("no results found")
 		return nil
 	}
 
-	for _, result := range results {
+	for _, result := range results.Files {
 		fmt.Printf("%s:%d-%d  (score: %.2f)\n", result.Path, result.StartLine, result.EndLine, result.Score)
 		fmt.Printf("    %s\n\n", snippet(result.Content))
+	}
+
+	// Only printed when there's actually a media result to show - find
+	// works exactly as before when media search isn't configured or
+	// found nothing.
+	if len(results.Media) > 0 {
+		fmt.Println("media:")
+		for _, result := range results.Media {
+			fmt.Printf("  %s  (score: %.2f)\n", result.Path, result.Score)
+		}
 	}
 
 	return nil

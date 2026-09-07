@@ -73,6 +73,28 @@ var fields = map[string]field{
 	"index.ignore_patterns": {
 		get: func(cfg *Config) string { return strings.Join(cfg.Index.IgnorePatterns, ", ") },
 	},
+	"search.max_results": {
+		get: func(cfg *Config) string { return strconv.Itoa(cfg.Search.MaxResults) },
+		set: func(cfg *Config, value string) error {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("expected an integer, got %q", value)
+			}
+			cfg.Search.MaxResults = n
+			return nil
+		},
+	},
+	"search.max_media_results": {
+		get: func(cfg *Config) string { return strconv.Itoa(cfg.Search.MaxMediaResults) },
+		set: func(cfg *Config, value string) error {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("expected an integer, got %q", value)
+			}
+			cfg.Search.MaxMediaResults = n
+			return nil
+		},
+	},
 }
 
 // Get returns the current value of a scalar config key (e.g.

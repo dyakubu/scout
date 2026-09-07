@@ -93,3 +93,25 @@ func TestEmbedImage(t *testing.T) {
 		t.Errorf("embedding length = %d, want 512", len(embedding))
 	}
 }
+
+func TestEmbedText(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not found on PATH")
+	}
+	t.Setenv("SCOUT_MEDIA_DUMMY", "1")
+
+	client, err := Start([]string{"python3", scriptPath}, "/fake/model/dir", "media-dummy-v1")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer client.Close()
+
+	embedding, err := client.EmbedText("a photo of a cat")
+	if err != nil {
+		t.Fatalf("EmbedText: %v", err)
+	}
+
+	if len(embedding) != 512 {
+		t.Errorf("embedding length = %d, want 512", len(embedding))
+	}
+}

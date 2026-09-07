@@ -150,16 +150,16 @@ func main() {
 
 	logger.Printf("embedder loaded in %s", time.Since(embedderLoadStart))
 
-	// The media worker is optional, and only ever started for "index" -
-	// find/config/sync never touch MediaEmbedder, and the worker now loads
-	// its model eagerly at startup (see media/worker.py), so starting it
-	// for a command that will never use it would mean every scout command
-	// pays a multi-second model load - or a ~500MB download on a machine
-	// that's never fetched the model - for no reason. With no
+	// The media worker is optional, and only ever started for "index" and
+	// "find" - config/sync never touch MediaEmbedder, and the worker now
+	// loads its model eagerly at startup (see media/worker.py), so
+	// starting it for a command that will never use it would mean every
+	// scout command pays a multi-second model load - or a ~500MB download
+	// on a machine that's never fetched the model - for no reason. With no
 	// media.model_dir configured, or if the Python worker fails to start
 	// (uv not installed, `uv sync` never run in media/, etc.), media files
-	// are simply skipped rather than aborting the run - text indexing must
-	// keep working regardless.
+	// are simply skipped rather than aborting the run - text indexing/
+	// search must keep working regardless.
 	//
 	// Run via "uv run --project media media/worker.py" rather than a bare
 	// python3, since real inference needs the media/ project's own
@@ -174,7 +174,7 @@ func main() {
 	const mediaModelID = "openai/clip-vit-base-patch32"
 
 	var mediaEmbedder embedder.MediaEmbedder
-	if args[1] == "index" && cfg.Media.ModelDir != "" {
+	if (args[1] == "index" || args[1] == "find") && cfg.Media.ModelDir != "" {
 		mediaCommand := []string{"uv", "run", "--project", "media", "media/worker.py"}
 		mediaClient, err := mediaworker.Start(mediaCommand, cfg.Media.ModelDir, mediaModelID)
 		if err != nil {
@@ -185,7 +185,7 @@ func main() {
 		}
 	}
 
-	searcher, err := search.NewSearcher(db, localEmbedder, logger)
+	searcher, err := search.NewSearcher(db, localEmbedder, mediaEmbedder, cfg.Search, logger)
 
 	if err != nil {
 		fmt.Println("unable to initialize searcher: ", err)
