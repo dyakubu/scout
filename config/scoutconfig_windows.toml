@@ -1,0 +1,84 @@
+# Global scout configuration. Auto-created on first run at
+# <os user config dir>/scout/scoutconfig.toml - edit freely.
+
+[embedder]
+# Relative paths here are resolved against the running scout binary's own
+# directory (not the working directory), since these assets ship
+# alongside the binary in scout's distributed archive.
+model_path       = "models/model_qint8_avx512_vnni.onnx"
+tokenizer_path   = "models/tokenizer.json"
+ort_library_path = "third_party/onnxruntime/onnxruntime.dll"
+batch_size       = 32
+
+[media]
+# Media (image/video) support is opt-in, off by default: empty means no
+# media worker is ever started, so a fresh install never tries to download
+# the (~500MB) model on its own. Set this to a directory (relative paths
+# resolve against the running scout binary's own directory, same as the
+# embedder paths above) to turn it on - the worker downloads its model
+# files there itself on first run if missing.
+model_dir = ""
+
+# Closed list, same convention as index.allowed_extensions below: a file
+# is only sent to the media embedder if its extension is here.
+allowed_extensions = [".jpg", ".jpeg", ".png"]
+
+[db]
+# Relative paths are resolved against this config file's own directory.
+path = "scout.db"
+
+[index]
+# Files larger than this are skipped (recorded in `files` with
+# status = "skipped") rather than embedded.
+max_file_size_mb = 2
+
+# Closed list by design: a file is only indexed if its extension is here.
+# Add an extension to opt it in - safer than trying to enumerate every
+# binary format that should be excluded.
+allowed_extensions = [
+    ".txt", ".md", ".markdown", ".rst",
+    ".go", ".py", ".js", ".jsx", ".ts", ".tsx",
+    ".java", ".c", ".h", ".cpp", ".hpp", ".rs",
+    ".rb", ".php", ".sh", ".sql",
+    ".html", ".css", ".scss",
+    ".json", ".yaml", ".yml", ".toml", ".xml",
+    ".swift", ".kt",
+    ".pdf",
+]
+
+# Directories skipped everywhere, regardless of .gitignore. A .gitignore
+# in the indexed directory, if present, is always respected on top of this.
+# Matched by exact name only - see ignore_dir_markers below for
+# directories that can be named anything (e.g. virtualenvs).
+ignore_dirs = [
+    "node_modules", ".git", ".svn", ".hg",
+    "vendor", "dist", "build", ".next",
+    ".venv", "venv", "__pycache__", ".cache", "target",
+    "site-packages",
+]
+
+# Directories skipped based on a marker file inside them, regardless of
+# what the directory itself is named. A Python virtualenv always has a
+# pyvenv.cfg at its root, even though the venv directory itself can be
+# named anything ("venv", ".venv", "rl-venv", ...), which ignore_dirs'
+# exact-name matching can't catch.
+ignore_dir_markers = [
+    "pyvenv.cfg",
+]
+
+# File-name glob patterns, matched the same way .gitignore patterns are.
+ignore_patterns = [
+    ".DS_Store",
+    ".env",
+    ".env.*",
+    "Thumbs.db",
+    "desktop.ini",
+]
+
+[search]
+# Default result counts for `scout find`, overridable per-call with
+# --max/--media-max. The two are independent - matching files and matching
+# media are separate result sets, never merged or compared against each
+# other.
+max_results = 5
+max_media_results = 5

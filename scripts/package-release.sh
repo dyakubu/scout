@@ -18,10 +18,13 @@ VERSION="${VERSION:?set VERSION, e.g. VERSION=v0.1.0}"
 GOOS="$(go env GOOS)"
 GOARCH="$(go env GOARCH)"
 
+BIN_NAME="scout"
+
 case "$GOOS" in
-  darwin) ORT_LIB_NAME="libonnxruntime.dylib" ;;
-  linux)  ORT_LIB_NAME="libonnxruntime.so" ;;
-  *)      echo "error: unsupported platform $GOOS/$GOARCH" >&2; exit 1 ;;
+  darwin)  ORT_LIB_NAME="libonnxruntime.dylib" ;;
+  linux)   ORT_LIB_NAME="libonnxruntime.so" ;;
+  windows) ORT_LIB_NAME="onnxruntime.dll"; BIN_NAME="scout.exe" ;;
+  *)       echo "error: unsupported platform $GOOS/$GOARCH" >&2; exit 1 ;;
 esac
 
 ORT_LIB="$ROOT_DIR/third_party/onnxruntime/$ORT_LIB_NAME"
@@ -38,14 +41,20 @@ rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR/models" "$PKG_DIR/third_party/onnxruntime"
 
 echo "building scout $VERSION for $GOOS/$GOARCH"
-( cd "$ROOT_DIR" && go build -ldflags "-X main.version=${VERSION}" -o "$PKG_DIR/scout" . )
+( cd "$ROOT_DIR" && go build -ldflags "-X main.version=${VERSION}" -o "$PKG_DIR/$BIN_NAME" . )
 
 cp "$ROOT_DIR/models/model_qint8_avx512_vnni.onnx" "$PKG_DIR/models/"
 cp "$ROOT_DIR/models/tokenizer.json" "$PKG_DIR/models/"
 cp "$ORT_LIB" "$PKG_DIR/third_party/onnxruntime/"
 
 ( cd "$DIST_DIR" && tar -czf "${PKG_NAME}.tar.gz" "$PKG_NAME" )
-( cd "$DIST_DIR" && shasum -a 256 "${PKG_NAME}.tar.gz" > "${PKG_NAME}.tar.gz.sha256" )
+
+# shasum is macOS/BSD-native; Windows' Git Bash ships sha256sum instead.
+if command -v shasum >/dev/null 2>&1; then
+  ( cd "$DIST_DIR" && shasum -a 256 "${PKG_NAME}.tar.gz" > "${PKG_NAME}.tar.gz.sha256" )
+else
+  ( cd "$DIST_DIR" && sha256sum "${PKG_NAME}.tar.gz" > "${PKG_NAME}.tar.gz.sha256" )
+fi
 
 rm -rf "$PKG_DIR"
 

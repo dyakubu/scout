@@ -27,6 +27,9 @@ jobs:
           - os: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -35,10 +38,24 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # CGO_ENABLED=1 is required (onnxruntime_go is a real cgo binding,
+      # not just a dynamically-loaded library), and Windows runners don't
+      # ship a cgo-compatible C compiler by default the way macOS
+      # (clang, via Xcode CLT) and Linux (gcc) runner images do.
+      - name: Set up MinGW-w64 (for cgo)
+        if: matrix.goos == 'windows'
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
       - name: Fetch native dependencies (onnxruntime)
+        shell: bash
         run: scripts/fetch-deps.sh
 
       - name: Build and package release archive
+        shell: bash
+        env:
+          CGO_ENABLED: 1
         run: VERSION=${{ github.ref_name }} scripts/package-release.sh
 
       - uses: actions/upload-artifact@v4

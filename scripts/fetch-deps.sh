@@ -28,6 +28,10 @@ case "$GOOS-$GOARCH" in
     ORT_ASSET="onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}.tgz"
     ORT_LIB_NAME="libonnxruntime.so"
     ;;
+  windows-amd64)
+    ORT_ASSET="onnxruntime-win-x64-${ONNXRUNTIME_VERSION}.zip"
+    ORT_LIB_NAME="onnxruntime.dll"
+    ;;
   darwin-amd64)
     echo "error: onnxruntime v${ONNXRUNTIME_VERSION} publishes no osx-x64 build (Intel Mac isn't supported upstream) - build onnxruntime from source, or use an older ONNX Runtime release that still ships one" >&2
     exit 1
@@ -46,11 +50,20 @@ else
   echo "fetching $ORT_ASSET"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ORT_ASSET}" -o "$tmp/ort.tgz"
-  tar -xzf "$tmp/ort.tgz" -C "$tmp"
+  archive="$tmp/ort.${ORT_ASSET##*.}"
+  curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ORT_ASSET}" -o "$archive"
+
+  # The release ships .tgz for macOS/Linux and .zip for Windows.
+  case "$ORT_ASSET" in
+    *.zip) unzip -q "$archive" -d "$tmp" ;;
+    *)     tar -xzf "$archive" -C "$tmp" ;;
+  esac
+
   pkg_dir="$(find "$tmp" -maxdepth 1 -type d -name 'onnxruntime-*')"
   # -L dereferences the release's libonnxruntime.{dylib,so} -> libonnxruntime.<version>.<ext>
-  # symlink, so third_party/ ends up with one plain file and no symlink chain to preserve.
+  # symlink (the Windows .zip has no such symlink - onnxruntime.dll is a
+  # plain file already - so -L is a no-op there), so third_party/ ends up
+  # with one plain file either way, no symlink chain to preserve.
   cp -L "$pkg_dir/lib/$ORT_LIB_NAME" "$ORT_DIR/$ORT_LIB_NAME"
   rm -rf "$tmp"
   trap - EXIT
