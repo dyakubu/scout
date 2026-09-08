@@ -18,34 +18,35 @@ $ scout find "that thing about retry backoff"
 ## Architecture
 
 ```
-                    scout index / scout find
-                              │
-                              ▼
+                  scout index / scout find
+                             │
+                             ▼
                        cli / commands
-                              │
-                 ┌────────────┴────────────┐
-                 ▼                         ▼
-              indexer                   search
-                 │                         │
-                 └────────────┬────────────┘
+                             │
+                      ┌───────┴───────┐
+                      ▼               ▼
+                   indexer         search
+        ╭┄┄┄┄┄┄┄┄┄┄┄┄┄┤               ├┄┄┄┄┄┄┄┄┄┄┄┄┄╮
+        ┊             │               │             ┊
+        ┊             └───────┬───────┘             ┊
+        ┊                     ▼                     ┊
+        ┊     embedder + tokenizer (ONNX, cgo)      ┊
+        ┊                     │                     ┊
+        ┊                     ▼                     ┊
+        ┊                  SQLite                   ┊
+        ┊        files · chunks · vec_chunks        ┊
+        ┊       media_embeddings · vec_media        ┊
+        ┊                                           ┊
+        ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┬┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯
                               ▼
-                embedder + tokenizer (ONNX Runtime, cgo)
-                              │
-                              ▼
-                            SQLite
-              files · chunks · vec_chunks
-              media_embeddings · vec_media
-
-  indexer and search also talk to, over stdio JSON lines (optional):
-
-                        media/worker.py
-                   (Python subprocess, CLIP)
+                      media/worker.py
+                 (Python subprocess, CLIP)
+              stdio JSON lines · optional path
 ```
 
-Everything down to SQLite runs inside a single Go binary. The media worker
-is the one piece that doesn't: it's a separate Python subprocess,
-started only if `media.model_dir` is configured, and text indexing/search
-never depends on it — any failure to reach it just means media results are
+Everything down to SQLite runs inside a single Go binary, except the media worker.
+It's a separate Python subprocess, started only if `media.model_dir` is configured, and text indexing/search
+never depends on it. Any failure to reach it just means media results are
 skipped.
 
 ## Why
