@@ -73,7 +73,8 @@ func Find(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error
 	}
 
 	for _, result := range results.Files {
-		fmt.Printf("%s:%d-%d  (score: %.2f)\n", result.Path, result.StartLine, result.EndLine, result.Score)
+		label := fmt.Sprintf("%s:%d-%d", result.Path, result.StartLine, result.EndLine)
+		fmt.Printf("%s  (score: %.2f)\n", hyperlink(result.Path, label), result.Score)
 		fmt.Printf("    %s\n\n", snippet(result.Content))
 	}
 
@@ -83,7 +84,7 @@ func Find(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error
 	if len(results.Media) > 0 {
 		fmt.Println("media:")
 		for _, result := range results.Media {
-			fmt.Printf("  %s  (score: %.2f)\n", result.Path, result.Score)
+			fmt.Printf("  %s  (score: %.2f)\n", hyperlink(result.Path, result.Path), result.Score)
 		}
 	}
 
