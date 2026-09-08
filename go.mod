@@ -8,6 +8,7 @@ require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/ncruces/go-sqlite3 v0.20.3
 	github.com/yalue/onnxruntime_go v1.35.0
+	golang.org/x/term v0.45.0
 	golang.org/x/text v0.20.0
 )
 

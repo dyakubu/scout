@@ -14,6 +14,9 @@ from transformers import CLIPModel, CLIPProcessor
 
 MODEL_REPO = "openai/clip-vit-base-patch32"
 
+# The file CLIPModel.from_pretrained actually needs to load weights
+WEIGHTS_FILENAME = "pytorch_model.bin"
+
 
 def load_model(model_dir: str) -> tuple[CLIPModel, CLIPProcessor]:
     """Loads CLIP from model_dir, downloading it there first if missing.
@@ -22,7 +25,18 @@ def load_model(model_dir: str) -> tuple[CLIPModel, CLIPProcessor]:
     worker is responsible for resolving its own model files within (see
     config/config.go's MediaConfig).
     """
-    if not os.path.isfile(os.path.join(model_dir, "config.json")):
+    if not os.path.isfile(os.path.join(model_dir, WEIGHTS_FILENAME)):
+        # Gate on the weights file, not config.json: a run interrupted
+        # mid-download (killed process, lost network) can leave config.json
+        # and the other small files fully written while pytorch_model.bin
+        # is still partial or absent, since snapshot_download fetches files
+        # one at a time and config.json is tiny. Checking the weights file
+        # directly means an interrupted download is retried next time
+        # instead of looking permanently "complete". snapshot_download
+        # itself only renames a file into place once its download finishes,
+        # so an interrupted attempt never leaves a same-named partial file
+        # behind to fool this check.
+        #
         # ignore_patterns skips the TensorFlow/Flax weight files - only
         # pytorch_model.bin is ever loaded (CLIPModel.from_pretrained
         # below), and the other two frameworks' weights are ~1.1GB of

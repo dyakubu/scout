@@ -18,8 +18,7 @@
             "program": "${workspaceFolder}/main.go",
             "args": [
                 "index",
-                "."
-                // "~/Documents",
+                 "~/Desktop",
                 // "isRecursive",
                 // "false",
                 // "extensions",
