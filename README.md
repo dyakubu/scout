@@ -17,48 +17,36 @@ $ scout find "that thing about retry backoff"
 
 ## Architecture
 
-```mermaid
-flowchart TD
+```
+                    scout index / scout find
+                              │
+                              ▼
+                       cli / commands
+                              │
+                 ┌────────────┴────────────┐
+                 ▼                         ▼
+              indexer                   search
+                 │                         │
+                 └────────────┬────────────┘
+                              ▼
+                embedder + tokenizer (ONNX Runtime, cgo)
+                              │
+                              ▼
+                            SQLite
+              files · chunks · vec_chunks
+              media_embeddings · vec_media
 
-    User(["scout index / scout find"])
+  indexer and search also talk to, over stdio JSON lines (optional):
 
-    subgraph Scout["scout (single Go binary)"]
-
-        CLI["cli / commands"]
-
-        Indexer["indexer\n(walk, chunk, gitignore)"]
-
-        Searcher["search\n(kNN, ranking)"]
-
-        Embedder["embedder + tokenizer\n(ONNX Runtime, cgo)"]
-
-        CLI --> Indexer
-
-        CLI --> Searcher
-
-        Indexer --> Embedder
-
-        Searcher --> Embedder
-
-    end
-
-    MediaWorker["media/worker.py\n(Python, CLIP, optional)"]
-
-    DB[("SQLite\nfiles · chunks · vec_chunks\nmedia_embeddings · vec_media")]
-
-    User --> CLI
-
-    Indexer --> DB
-
-    Searcher --> DB
-
-    Indexer -. stdio JSON lines .-> MediaWorker
-
-    Searcher -. stdio JSON lines .-> MediaWorker
-
+                        media/worker.py
+                   (Python subprocess, CLIP)
 ```
 
-Text indexing/search never depends on the media worker. It's an optional subprocess, started only if `media.model_dir` is configured, and any failure to reach it just means media results are skipped.
+Everything down to SQLite runs inside a single Go binary. The media worker
+is the one piece that doesn't: it's a separate Python subprocess,
+started only if `media.model_dir` is configured, and text indexing/search
+never depends on it — any failure to reach it just means media results are
+skipped.
 
 ## Why
 
