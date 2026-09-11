@@ -16,11 +16,10 @@ batch_size       = 32
 # same archive. It is never fetched at runtime: a directory missing any of
 # its files is an error, not a download.
 #
-# Set this to "" to turn media support off entirely - no media worker is
-# started, media files are skipped at index time, and `find` returns text
-# results only. That also happens on its own if this path doesn't exist,
-# so an install without the media half of the archive degrades to
-# text-only rather than failing.
+# Set this to "" to turn media support off - no media worker is started,
+# media files are skipped at index time, and `find` returns text results
+# only. A path that doesn't exist has the same effect, so an install
+# without the media half of the archive degrades to text-only.
 model_dir = "models/media"
 
 # Closed list, same convention as index.allowed_extensions below: a file

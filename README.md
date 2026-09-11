@@ -152,9 +152,11 @@ brew install dyakubu/scout/scout
 
 Installs from the [homebrew-scout](https://github.com/dyakubu/homebrew-scout)
 tap, pointing at the same release archives as below. Intel Macs aren't
-supported: ONNX Runtime publishes no `osx-x64` build for scout's pinned
-version. Windows isn't available via Homebrew - use the release archive
-below instead.
+supported: ONNX Runtime publishes no macOS x86_64 build after v1.23.2, and
+that release is older than scout's Go bindings can drive (they request C
+API 29; 1.23.2 offers 23), so pinning back to it isn't a way around this.
+Windows isn't available via Homebrew - use the release archive below
+instead.
 
 ### From a release
 

@@ -12,10 +12,8 @@ set -euo pipefail
 #   third_party/onnxruntime/           dlopened by the Go embedder
 #   media/                             the media worker and its interpreter
 #
-# models/tokenizer.json is scout's own pure-Go tokenizer's vocab/config,
-# not a native library - no separate tokenizer runtime dependency ships
-# there. models/media/tokenizer.json is a different thing: CLIP's own
-# tokenizer, read by the Python worker.
+# The two tokenizer.json files are unrelated: models/ holds scout's pure-Go
+# tokenizer's vocab, models/media/ holds CLIP's, read by the Python worker.
 #
 # Usage: VERSION=v0.1.0 scripts/package-release.sh
 
@@ -75,19 +73,15 @@ cp "$ORT_LIB" "$PKG_DIR/third_party/onnxruntime/"
 
 cp "$CLIP_SRC/vision_model_q4f16.onnx" "$CLIP_SRC/text_model_q4f16.onnx" "$CLIP_SRC/tokenizer.json" "$PKG_DIR/models/media/"
 
-# The media worker: its two source files and the interpreter that runs
-# them. Only worker.py and clip.py - main.py is a manual-testing CLI and
-# test_clip.py is a test, neither of which scout ever invokes.
+# The media worker: the two source files scout actually invokes, plus the
+# interpreter that runs them.
 cp "$ROOT_DIR/media/worker.py" "$ROOT_DIR/media/clip.py" "$PKG_DIR/media/"
 
 echo "assembling the media worker's Python runtime"
 
-# A pristine copy of the fetched interpreter, with the worker's
-# dependencies installed straight into its own site-packages - no
-# virtualenv. A venv would record an absolute path to its base interpreter
-# in pyvenv.cfg and break the moment the archive is unpacked somewhere
-# else; this tree resolves its stdlib from the location of its own
-# executable, so it works wherever it lands. See media/clip.py.
+# Dependencies go straight into the interpreter's own site-packages, not a
+# virtualenv: a venv records an absolute path to its base interpreter and
+# would break as soon as the archive is unpacked elsewhere.
 cp -R "$PYTHON_SRC" "$PKG_DIR/media/python"
 
 case "$GOOS" in
@@ -95,15 +89,13 @@ case "$GOOS" in
   *)       PKG_PYTHON="$PKG_DIR/media/python/bin/python3" ;;
 esac
 
-# Installed from the lockfile, not from pyproject.toml's ranges, so the
-# archive pins exactly what `uv sync` gives a developer. --no-dev leaves
-# out pytest and friends.
+# From the lockfile, so the archive pins exactly what `uv sync` gives a
+# developer.
 uv export --project "$ROOT_DIR/media" --no-dev --no-hashes --format requirements-txt \
   | uv pip install --quiet --python "$PKG_PYTHON" -r -
 
-# Bytecode caches, pip, and the build headers are all dead weight in a
-# shipped tree: nothing in the archive compiles against this interpreter
-# or installs into it after packaging.
+# Nothing compiles against this interpreter or installs into it after
+# packaging, so the headers and bytecode caches are dead weight.
 rm -rf "$PKG_DIR/media/python/include"
 find "$PKG_DIR/media/python" -name "__pycache__" -type d -prune -exec rm -rf {} + 2>/dev/null || true
 

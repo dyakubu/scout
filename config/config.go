@@ -23,11 +23,11 @@ type EmbedderConfig struct {
 	BatchSize      int    `toml:"batch_size"`
 }
 
-// MediaConfig configures the media (image/video) embedding worker. Unlike
-// EmbedderConfig's individual file paths, ModelDir names a directory - the
-// worker resolves whatever files it needs (the two CLIP towers and their
-// tokenizer) within it. They ship in scout's release archive; the worker
-// never fetches them, and fails outright if any are missing.
+// MediaConfig configures the media (image/video) embedding worker.
+// ModelDir names a directory rather than individual files: the worker
+// resolves the CLIP towers and tokenizer it needs within it. They ship in
+// scout's release archive, and a directory missing any of them is an
+// error, never a download.
 type MediaConfig struct {
 	ModelDir string `toml:"model_dir"`
 

@@ -91,11 +91,9 @@ def main() -> None:
         try:
             _sessions, _tokenizer = load_model(args.model_dir)
         except Exception as e:
-            # Still fatal, per the module docstring - just not as a
-            # traceback. scout wires this process's stderr straight to its
-            # own (see mediaworker.Start), so an unhandled exception here
-            # prints a Python stack trace into the middle of a user's
-            # search results. The message alone says everything actionable.
+            # Fatal, but reported as one line: scout wires this process's
+            # stderr to its own, so a traceback would land in the middle of
+            # a user's search results.
             print(f"scout media worker: {e}", file=sys.stderr, flush=True)
             sys.exit(1)
 

@@ -1,21 +1,12 @@
 """Guards clip.py's embeddings against silent numerical regressions.
 
-Nothing in the ONNX path raises when it goes wrong. A mismatched
-preprocessing step, a resample filter that isn't bicubic, an input padded
-the way some other CLIP export expects, or a quantized model file that
-simply doesn't survive quantization all produce well-formed 512-float
-vectors that are quietly worse or outright meaningless - during this
-backend switch, one candidate model returned vectors that ranked every
-query identically, with no error anywhere.
+A broken preprocessing step or a badly quantized model still returns
+well-formed 512-float vectors, so shape and finiteness checks would pass.
+These compare against reference vectors in testdata/reference.json,
+captured from the torch implementation clip.py replaced. See README.md.
 
-So these tests don't check shapes and finiteness, which would pass in all
-of those cases. They check the embeddings against reference vectors in
-testdata/reference.json, captured from the original torch
-CLIPModel/CLIPProcessor implementation this file's subject replaced.
-
-Run with `uv run pytest` from media/. The model isn't a test fixture -
-it's the ~126MB one that ships in scout's release archive - so these skip
-when it's absent rather than failing a checkout that doesn't have it.
+Run with `uv run pytest` from media/. They skip when no model is present,
+since it ships in the release archive rather than in git.
 """
 
 import json
@@ -37,11 +28,9 @@ from clip import (
 
 TESTDATA = Path(__file__).parent / "testdata"
 
-# The ONNX towers are quantized (q4f16), so they don't reproduce the fp32
-# torch reference bit for bit - they track it at 0.938-0.987 cosine. This
-# threshold sits below the observed spread but far above a broken pipeline,
-# which lands near zero: it's here to catch "meaningless", not "different
-# in the last decimal place".
+# Quantized towers track the fp32 reference at 0.938-0.987 cosine. This
+# threshold sits below that spread and far above a broken pipeline, which
+# lands near zero.
 MIN_COSINE = 0.90
 
 MODEL_DIR = os.environ.get(
@@ -98,9 +87,8 @@ def test_text_embeddings_match_reference(model, reference):
 
 
 def test_embeddings_are_normalized(model):
-    """scout compares these with a plain dot product (see
-    search/searcher.go), which is only cosine similarity if both sides are
-    unit length."""
+    """scout compares these with a plain dot product, which is only cosine
+    similarity if both sides are unit length."""
     sessions, tokenizer = model
 
     vectors = [
@@ -114,9 +102,8 @@ def test_embeddings_are_normalized(model):
 
 
 def test_distinct_inputs_produce_distinct_embeddings(model):
-    """A collapsed model - one that returns near-identical vectors for
-    everything - still passes a reference check per input if the reference
-    itself were regenerated from it. This catches that independently."""
+    """Catches a collapsed model, which returns near-identical vectors for
+    every input and would survive a regenerated reference file."""
     sessions, _ = model
 
     gradient = embed_image(sessions, str(TESTDATA / "gradient.png"))
@@ -126,13 +113,10 @@ def test_distinct_inputs_produce_distinct_embeddings(model):
 
 
 def test_truncated_query_stays_terminated(model):
-    """The text tower finds the end of the sequence by argmax over
-    input_ids, so <|endoftext|> has to survive truncation of an over-length
-    query - otherwise argmax lands on an arbitrary token and pools the
-    wrong position, silently. That it survives is a property of
-    tokenizer.json's post-processor (which adds special tokens after
-    truncating), not of clip.py, so it's worth pinning here: a tokenizer
-    change could take it away without anything else noticing."""
+    """<|endoftext|> must survive truncation of an over-length query, or
+    the text tower's argmax pools the wrong position. That's a property of
+    tokenizer.json rather than of clip.py, so a tokenizer change could take
+    it away with nothing else noticing."""
     sessions, tokenizer = model
 
     prefix = "a photograph of a mountain range at sunrise with clouds below the peaks"
@@ -143,9 +127,9 @@ def test_truncated_query_stays_terminated(model):
     assert len(ids) == CONTEXT_LENGTH
     assert ids[-1] == tokenizer.token_to_id(EOT_TOKEN)
 
-    # And the embedding it produces is still about the query: closer to its
-    # own prefix than to an unrelated one. (Not *very* close to the prefix -
-    # 60 of its 77 tokens are the repeated filler, so it shouldn't be.)
+    # The embedding is still about the query: closer to its own prefix than
+    # to an unrelated one, though not very close, since most of its tokens
+    # are the repeated filler.
     truncated = embed_text(sessions, tokenizer, long_query)
     to_prefix = cosine(truncated, embed_text(sessions, tokenizer, prefix))
     to_unrelated = cosine(truncated, embed_text(sessions, tokenizer, "a bowl of soup on a wooden table"))

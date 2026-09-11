@@ -5,31 +5,28 @@ set -euo pipefail
 #
 #   * libonnxruntime - loaded via dlopen, see embedder/local_embedder.go
 #   * the CLIP model  - the media worker's, see media/clip.py
-#   * CPython         - the interpreter that media worker runs on
+#   * CPython         - the interpreter the media worker runs on
 #
 # Used both for local dev setup and, unmodified, as the per-platform step in
 # CI's release build matrix - run natively on each target OS/arch, since CGO
 # rules out cross-compiling this from one machine.
 #
-# Every download here happens at build time. scout itself makes no network
-# calls at any point: whatever it needs is in the release archive beside it
-# by the time a user runs it, which is what scripts/package-release.sh
-# assembles out of what this script fetches.
+# These downloads happen at build time only. scout makes no network calls:
+# scripts/package-release.sh puts everything fetched here into the archive
+# beside the binary.
 ONNXRUNTIME_VERSION="1.29.0"
 
 # The media worker's CLIP model: two q4f16 ONNX towers plus their
-# tokenizer, pinned to an exact repo revision rather than main so a build
-# is reproducible and can't silently pick up re-uploaded weights. See
-# media/clip.py for why these particular files.
+# tokenizer, pinned to an exact revision so builds are reproducible and
+# can't pick up re-uploaded weights. See media/README.md.
 CLIP_REPO="Xenova/clip-vit-base-patch32"
 CLIP_REVISION="d15189d7028b43f1d3e65039190477f6af591c2a"
 
-# CPython for the media worker, built by astral-sh/python-build-standalone
-# to be relocatable - it resolves its own stdlib from the path of its own
-# executable, so it works from wherever the archive is unpacked without a
-# venv, a PYTHONHOME, or any Python on the user's machine. "install_only"
-# is the runtime-only layout (no build artifacts); "_stripped" has debug
-# symbols removed, roughly halving it on Linux and Windows.
+# CPython for the media worker, from astral-sh/python-build-standalone.
+# It's relocatable: it resolves its stdlib from the path of its own
+# executable, so it runs from wherever the archive is unpacked, with no
+# venv and no Python on the user's machine. "install_only" is the
+# runtime-only layout; "_stripped" drops debug symbols.
 PYTHON_VERSION="3.11.16"
 PYTHON_RELEASE="20260901"
 
@@ -63,7 +60,12 @@ case "$GOOS-$GOARCH" in
     PYTHON_TRIPLE="x86_64-pc-windows-msvc"
     ;;
   darwin-amd64)
-    echo "error: onnxruntime v${ONNXRUNTIME_VERSION} publishes no osx-x64 build (Intel Mac isn't supported upstream) - build onnxruntime from source, or use an older ONNX Runtime release that still ships one" >&2
+    # ONNX Runtime stopped publishing macOS x86_64 after v1.23.2, for both
+    # the archive fetched here and the wheel the media worker needs.
+    # Dropping ONNXRUNTIME_VERSION back to it isn't enough on its own:
+    # onnxruntime_go asks for C API version 29 and 1.23.2 offers 23, so the
+    # Go binding would have to be downgraded too, for every platform.
+    echo "error: onnxruntime publishes no macOS x86_64 build after v1.23.2, which is older than scout's Go bindings can drive (they request C API 29; 1.23.2 offers 23) - building onnxruntime from source is the only way to an Intel Mac build" >&2
     exit 1
     ;;
   *)
@@ -118,9 +120,8 @@ else
   trap - EXIT
 fi
 
-# The CLIP model. Checked per file rather than per directory: a download
-# interrupted partway leaves the directory looking populated while the
-# worker still can't start (see media/clip.py's missing_files).
+# The CLIP model, checked per file: an interrupted download leaves the
+# directory looking populated while the worker still can't start.
 mkdir -p "$CLIP_DIR"
 
 for entry in \
@@ -139,9 +140,8 @@ do
   fi
 
   echo "fetching clip model $name"
-  # Downloaded to a temporary name and renamed only after its checksum
-  # matches, so an interrupted or corrupted fetch can't leave a file that
-  # later runs treat as complete.
+  # Renamed into place only once the checksum matches, so an interrupted or
+  # corrupted fetch can't leave a file later runs treat as complete.
   curl -fsSL "https://huggingface.co/${CLIP_REPO}/resolve/${CLIP_REVISION}/${repo_path}" -o "$CLIP_DIR/$name.partial"
   verify_sha256 "$CLIP_DIR/$name.partial" "$want_sha"
   mv "$CLIP_DIR/$name.partial" "$CLIP_DIR/$name"
@@ -159,9 +159,8 @@ else
   curl -fsSL "https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_RELEASE}/${PYTHON_ASSET}" -o "$tmp/python.tar.gz"
   tar -xzf "$tmp/python.tar.gz" -C "$tmp"
 
-  # The tarball unpacks to a single "python/" directory. Replaced wholesale
-  # rather than merged into an existing one, so a re-fetch can't leave
-  # files from a previous version behind.
+  # Replaced wholesale rather than merged, so a re-fetch can't leave files
+  # from a previous version behind.
   rm -rf "$PYTHON_DIR"
   mkdir -p "$(dirname "$PYTHON_DIR")"
   mv "$tmp/python" "$PYTHON_DIR"

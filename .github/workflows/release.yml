@@ -66,11 +66,10 @@ jobs:
         shell: bash
         run: echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
 
-      # uv installs the media worker's dependencies into the bundled Python
-      # interpreter at packaging time (see scripts/package-release.sh).
-      # It's a build tool only - nothing in the released archive needs uv,
-      # or any Python, on the user's machine. Pinned to an exact release:
-      # setup-uv publishes no floating major tag to track.
+      # Installs the media worker's dependencies into the bundled Python
+      # interpreter at packaging time. A build tool only: the released
+      # archive needs neither uv nor Python on the user's machine. Pinned
+      # exactly, since setup-uv publishes no floating major tag.
       - uses: astral-sh/setup-uv@v10.1.0
 
       - name: Fetch runtime dependencies (onnxruntime, CLIP model, python)
