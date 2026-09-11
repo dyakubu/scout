@@ -9,6 +9,7 @@ import (
 
 	"github.com/dyakubu/scout/config"
 	scoutdb "github.com/dyakubu/scout/db"
+	"github.com/dyakubu/scout/embedder/embeddertest"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -199,5 +200,90 @@ func TestChunkText_Basics(t *testing.T) {
 
 	if _, err := ChunkText("text", 0); err == nil {
 		t.Error("ChunkText with chunkSize=0: expected an error, got none")
+	}
+}
+
+// TestIndexDirectory_SkipsUnreadableDirs covers a walk that meets a
+// directory it has no permission to read. Indexing a home directory hits
+// this routinely on macOS (~/.Trash, much of ~/Library), and one such
+// directory used to abort the entire run.
+func TestIndexDirectory_SkipsUnreadableDirs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root, which can read a 0000 directory anyway")
+	}
+
+	root := t.TempDir()
+
+	// Named so the unreadable directory is walked before "zzz", proving
+	// the walk carries on past it rather than stopping there.
+	for _, dir := range []string{"aaa", "zzz"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+		path := filepath.Join(root, dir, "notes.txt")
+		if err := os.WriteFile(path, []byte(dir+" contents"), 0o644); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+
+	locked := filepath.Join(root, "mmm-locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatalf("creating locked dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("writing into locked dir: %v", err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	fi := newTestIndexer(t)
+	fi.Embedder = &embeddertest.Embedder{
+		Vectors: map[string][]float32{
+			"aaa contents": embeddertest.UnitVector(384, 0),
+			"zzz contents": embeddertest.UnitVector(384, 1),
+		},
+	}
+
+	stats, err := fi.IndexDirectory(root, true)
+	if err != nil {
+		t.Fatalf("IndexDirectory: %v", err)
+	}
+
+	if stats.FilesIndexed != 2 {
+		t.Errorf("FilesIndexed = %d, want 2 (both readable files, either side of the locked dir)", stats.FilesIndexed)
+	}
+	if stats.PathsUnreadable != 1 {
+		t.Errorf("PathsUnreadable = %d, want 1", stats.PathsUnreadable)
+	}
+	if stats.Errors != 0 {
+		t.Errorf("Errors = %d, want 0 - an unreadable directory is skipped, not an error", stats.Errors)
+	}
+}
+
+// TestIndexDirectory_UnreadableRootIsAnError is the other half: scout can
+// skip what it stumbles into, but being pointed at a directory it can't
+// read has to fail rather than report an empty run.
+func TestIndexDirectory_UnreadableRootIsAnError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root, which can read a 0000 directory anyway")
+	}
+
+	root := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(root, 0o000); err != nil {
+		t.Fatalf("creating locked dir: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(root, 0o755) })
+
+	fi := newTestIndexer(t)
+	fi.Embedder = &embeddertest.Embedder{}
+
+	stats, err := fi.IndexDirectory(root, true)
+	if err == nil {
+		t.Fatal("IndexDirectory: want an error for an unreadable root, got nil")
+	}
+	if stats.SawAnything() {
+		t.Errorf("stats report work that never happened: %+v", stats)
 	}
 }

@@ -42,10 +42,10 @@ func Index(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) erro
 
 	stats, err := deps.FileIndexer.IndexDirectory(absPath, recursive)
 
-	// A zero-value stats alongside an error means IndexDirectory failed
-	// before attempting any work (e.g. the path doesn't exist) - a summary
-	// would misleadingly suggest a real, empty run happened.
-	if err == nil || stats != (indexer.IndexStats{}) {
+	// An error with nothing visited means IndexDirectory failed before any
+	// work happened - the path doesn't exist, or can't be read - and a
+	// summary would misleadingly suggest a real, empty run.
+	if err == nil || stats.SawAnything() {
 		printIndexSummary(stats)
 	}
 
@@ -64,6 +64,9 @@ func printIndexSummary(stats indexer.IndexStats) {
 	}
 	if stats.FilesFiltered > 0 {
 		fmt.Printf("  %d file(s) excluded by extension/ignore rules\n", stats.FilesFiltered)
+	}
+	if stats.PathsUnreadable > 0 {
+		fmt.Printf("  %d path(s) skipped (unreadable - see log)\n", stats.PathsUnreadable)
 	}
 	if stats.Errors > 0 {
 		fmt.Printf("  %d error(s) - see above\n", stats.Errors)

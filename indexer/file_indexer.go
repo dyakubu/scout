@@ -83,8 +83,21 @@ type IndexStats struct {
 	MediaFilesIndexed  int
 	MediaFilesFiltered int
 
+	// PathsUnreadable counts directories and files the walk couldn't read
+	// at all - permission denied, or removed while the walk was running.
+	// They're skipped rather than failing the run.
+	PathsUnreadable int
+
 	Errors  int
 	Elapsed time.Duration
+}
+
+// SawAnything reports whether the run visited anything at all. Elapsed is
+// always set, so a zero-value comparison can't tell an empty directory
+// apart from a walk that failed before it started.
+func (s IndexStats) SawAnything() bool {
+	return s.FilesIndexed+s.FilesUnchanged+s.FilesTooLarge+s.FilesFiltered+
+		s.MediaFilesIndexed+s.MediaFilesFiltered+s.PathsUnreadable+s.Errors > 0
 }
 
 // statsAccumulator is IndexStats' concurrency-safe counterpart, updated
@@ -100,6 +113,8 @@ type statsAccumulator struct {
 	mediaFilesIndexed  atomic.Int64
 	mediaFilesFiltered atomic.Int64
 
+	pathsUnreadable atomic.Int64
+
 	errors atomic.Int64
 }
 
@@ -112,6 +127,7 @@ func (s *statsAccumulator) result(elapsed time.Duration) IndexStats {
 		ChunksEmbedded:     int(s.chunksEmbedded.Load()),
 		MediaFilesIndexed:  int(s.mediaFilesIndexed.Load()),
 		MediaFilesFiltered: int(s.mediaFilesFiltered.Load()),
+		PathsUnreadable:    int(s.pathsUnreadable.Load()),
 		Errors:             int(s.errors.Load()),
 		Elapsed:            elapsed,
 	}
@@ -333,7 +349,25 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 
 	walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// Failing on the directory being indexed is fatal - there's
+			// nothing to walk, and an empty summary would hide why.
+			if path == dir {
+				return err
+			}
+
+			// Deeper down, an unreadable path is skipped so the rest of
+			// the tree still gets indexed. Indexing a home directory
+			// reaches plenty of these: macOS denies access to ~/.Trash
+			// and much of ~/Library unless the terminal has been granted
+			// Full Disk Access, and a single one of them used to abort
+			// the whole run.
+			stats.pathsUnreadable.Add(1)
+			fi.Logger.Printf("skipping %s: %v", path, err)
+
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		if d.IsDir() {
