@@ -4,10 +4,11 @@ from pathlib import Path
 
 from clip import embed_image, load_model
 
-# Default when no --model-dir/SCOUT_MEDIA_MODEL_DIR is given: a directory
-# next to this script, not the current working directory, so behavior
-# doesn't depend on where the script happens to be invoked from.
-DEFAULT_MODEL_DIR = Path(__file__).parent / "model"
+# Default when no --model-dir/SCOUT_MEDIA_MODEL_DIR is given: the same
+# models/media the shipped config's media.model_dir points at, resolved
+# from this script's own location rather than the current working
+# directory, so behavior doesn't depend on where it's invoked from.
+DEFAULT_MODEL_DIR = Path(__file__).parent.parent / "models" / "media"
 
 
 def main():
@@ -20,8 +21,8 @@ def main():
     )
     args = parser.parse_args()
 
-    model, processor = load_model(args.model_dir)
-    embedding = embed_image(model, processor, args.image)
+    sessions, _ = load_model(args.model_dir)
+    embedding = embed_image(sessions, args.image)
 
     print(f"embedding dim: {len(embedding)}")
     print(embedding)

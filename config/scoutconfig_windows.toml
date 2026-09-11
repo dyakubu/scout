@@ -11,13 +11,17 @@ ort_library_path = "third_party/onnxruntime/onnxruntime.dll"
 batch_size       = 32
 
 [media]
-# Media (image/video) support is opt-in, off by default: empty means no
-# media worker is ever started, so a fresh install never tries to download
-# the (~500MB) model on its own. Set this to a directory (relative paths
-# resolve against the running scout binary's own directory, same as the
-# embedder paths above) to turn it on - the worker downloads its model
-# files there itself on first run if missing.
-model_dir = ""
+# Directory holding the CLIP model, resolved against the running scout
+# binary's own directory like the embedder paths above, and shipped in the
+# same archive. It is never fetched at runtime: a directory missing any of
+# its files is an error, not a download.
+#
+# Set this to "" to turn media support off entirely - no media worker is
+# started, media files are skipped at index time, and `find` returns text
+# results only. That also happens on its own if this path doesn't exist,
+# so an install without the media half of the archive degrades to
+# text-only rather than failing.
+model_dir = "models/media"
 
 # Closed list, same convention as index.allowed_extensions below: a file
 # is only sent to the media embedder if its extension is here.

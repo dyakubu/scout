@@ -1,12 +1,20 @@
 [project]
 name = "media"
 version = "0.1.0"
-description = "Add your description here"
+description = "scout's media (image/video) embedding worker"
 readme = "README.md"
 requires-python = ">=3.11"
+# Inference runs on ONNX Runtime rather than torch/transformers: same CLIP
+# ViT-B/32 model, ~5x smaller install, ~8x faster worker startup. See
+# clip.py's module docstring.
 dependencies = [
-    "torch>=2.2",
-    "transformers>=4.40",
-    "huggingface-hub>=0.23",
+    "onnxruntime>=1.20",
+    "numpy>=1.26",
     "pillow>=10.0",
+    "tokenizers>=0.19",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
 ]

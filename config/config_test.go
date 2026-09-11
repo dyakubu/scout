@@ -57,8 +57,12 @@ func TestLoad_WritesDefaultOnFirstRun(t *testing.T) {
 	if cfg.Search.MaxMediaResults != 5 {
 		t.Errorf("Search.MaxMediaResults = %d, want 5", cfg.Search.MaxMediaResults)
 	}
-	if cfg.Media.ModelDir != "" {
-		t.Errorf("Media.ModelDir = %q, want empty (media support is opt-in)", cfg.Media.ModelDir)
+	execDir, err := execDir()
+	if err != nil {
+		t.Fatalf("execDir: %v", err)
+	}
+	if want := filepath.Join(execDir, "models", "media"); cfg.Media.ModelDir != want {
+		t.Errorf("Media.ModelDir = %q, want %q (the model ships alongside the binary)", cfg.Media.ModelDir, want)
 	}
 }
 

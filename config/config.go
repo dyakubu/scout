@@ -25,8 +25,9 @@ type EmbedderConfig struct {
 
 // MediaConfig configures the media (image/video) embedding worker. Unlike
 // EmbedderConfig's individual file paths, ModelDir names a directory - the
-// worker resolves whatever files it needs (weights, preprocessor config,
-// etc.) within it, and downloads them there itself if missing.
+// worker resolves whatever files it needs (the two CLIP towers and their
+// tokenizer) within it. They ship in scout's release archive; the worker
+// never fetches them, and fails outright if any are missing.
 type MediaConfig struct {
 	ModelDir string `toml:"model_dir"`
 
@@ -171,8 +172,8 @@ func resolveEmbedderPaths(cfg *EmbedderConfig) error {
 // resolveMediaPaths makes the media model directory absolute, resolving a
 // relative path against the running binary's own directory - same
 // convention as resolveEmbedderPaths, and for the same reason: it's where
-// scout's bundled/downloaded assets live relative to the binary, not the
-// working directory.
+// scout's bundled assets live relative to the binary, not the working
+// directory.
 //
 // An empty ModelDir is left untouched rather than resolved to execDir
 // itself: existing config files predating this field decode it as "",

@@ -24,9 +24,11 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# CLIP weights downloaded into media.model_dir - covers both the current
-# default location and /models/media, an old default path that's no
-# longer used but may still exist on disk from before that default changed.
-/media/model/
+# The CLIP model media.model_dir points at. Not committed - it ships in
+# the release archive, assembled at packaging time, the same way the text
+# embedder's ONNX model is committed but onnxruntime isn't. /media/model
+# and media_embedding are older locations for it, ignored so a stale copy
+# left over from before the default changed can't get committed.
 /models/media/
+/media/model/
 media_embedding/

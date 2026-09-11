@@ -38,8 +38,8 @@ EMBEDDING_DIM = 512
 DUMMY = os.environ.get("SCOUT_MEDIA_DUMMY") == "1"
 
 _model_dir_configured = False
-_model = None
-_processor = None
+_sessions = None
+_tokenizer = None
 
 
 def handle(job: dict) -> dict:
@@ -61,11 +61,11 @@ def handle(job: dict) -> dict:
         if kind == "text":
             from clip import embed_text
 
-            embedding = embed_text(_model, _processor, payload)
+            embedding = embed_text(_sessions, _tokenizer, payload)
         elif kind == "image":
             from clip import embed_image
 
-            embedding = embed_image(_model, _processor, payload)
+            embedding = embed_image(_sessions, payload)
         else:
             return {"id": job_id, "embedding": None, "error": f"unknown kind {kind!r}"}
     except Exception as e:
@@ -75,7 +75,7 @@ def handle(job: dict) -> dict:
 
 
 def main() -> None:
-    global _model_dir_configured, _model, _processor
+    global _model_dir_configured, _sessions, _tokenizer
 
     parser = argparse.ArgumentParser(description="scout media worker")
     parser.add_argument("--model-dir", default="", help="directory to load the CLIP model from")
@@ -84,11 +84,20 @@ def main() -> None:
     _model_dir_configured = bool(args.model_dir)
 
     # Imported lazily, not at module load, so SCOUT_MEDIA_DUMMY=1 tests
-    # never need torch/transformers/pillow installed at all.
+    # never need onnxruntime/pillow installed at all.
     if _model_dir_configured and not DUMMY:
         from clip import load_model
 
-        _model, _processor = load_model(args.model_dir)
+        try:
+            _sessions, _tokenizer = load_model(args.model_dir)
+        except Exception as e:
+            # Still fatal, per the module docstring - just not as a
+            # traceback. scout wires this process's stderr straight to its
+            # own (see mediaworker.Start), so an unhandled exception here
+            # prints a Python stack trace into the middle of a user's
+            # search results. The message alone says everything actionable.
+            print(f"scout media worker: {e}", file=sys.stderr, flush=True)
+            sys.exit(1)
 
     for line in sys.stdin:
         line = line.strip()

@@ -130,9 +130,13 @@ The tradeoff is that scout ships a real (if small, quantized) ML model and a nat
 
 ### Optional: image search (media worker)
 
-Scout can also embed images using [CLIP](https://openai.com/research/clip), so `scout find` can turn up matching photos alongside matching text. Because CLIP's dependencies (PyTorch, `transformers`) are Python-only and far too heavy to bundle into scout's own binary, this runs as a **separate Python subprocess** (`media/worker.py`) that scout's `mediaworker` package talks to over stdin/stdout, one JSON job per line.
+Scout can also embed images using [CLIP](https://openai.com/research/clip), so `scout find` can turn up matching photos alongside matching text. It runs as a **separate Python subprocess** (`media/worker.py`) that scout's `mediaworker` package talks to over stdin/stdout, one JSON job per line.
 
-This is currently **development-only**. It's launched via `uv run --project media media/worker.py`, resolved relative to a repo checkout, not the installed binary. If `media.model_dir` isn't configured, or the worker fails to start (`uv` missing, dependencies not installed), scout logs it and continues with text-only search. Indexing and search never hard-fail because of the media path.
+The worker runs CLIP ViT-B/32 through ONNX Runtime rather than PyTorch. It's the same model either way, but the quantized ONNX towers are ~126MB against torch's ~605MB checkpoint, the dependencies are ~144MB installed against ~764MB, and the worker starts in ~0.5s instead of ~2.4s - which scout pays on every `find`, since the query embed waits on the worker's model load. Quantization costs some fidelity: embeddings sit 0.94-0.99 cosine from the fp32 torch ones, close enough to rank the same. `media/test_clip.py` pins that against reference vectors captured from the original torch implementation.
+
+The model itself is resolved like every other scout asset - `media.model_dir`, relative to the binary's own directory, defaulting to `models/media` - and is never downloaded. Launching the worker is what's still **development-only**: it runs `uv run --project media media/worker.py`, resolved relative to a repo checkout rather than the installed binary, so a release archive can carry the model without yet being able to run it.
+
+Every media failure degrades to text-only rather than breaking a run: no `media.model_dir`, nothing at the path it names, `uv` missing, dependencies not installed, or the worker dying on an incomplete model directory. Scout logs it and carries on. Indexing and search never hard-fail because of the media path.
 
 ## Installing
 
@@ -248,9 +252,13 @@ To develop against the media worker locally, from the repo root:
 cd media
 
 uv sync
+
+uv run pytest        # skips unless media.model_dir holds a CLIP model
 ```
 
-then set `media.model_dir` in your config (`scout config set media.model_dir <dir>`) and run `scout index`/`scout find` as usual from the repo root.
+then put the CLIP model - ~126MB: the two q4f16 ONNX towers and `tokenizer.json`, named in `media/clip.py` - in `models/media/`, which is where `media.model_dir` points by default, and run `scout index`/`scout find` as usual from the repo root. Nothing fetches the model for you: scout makes no network calls at any point, and the worker exits naming whichever files are missing. Set `media.model_dir = ""` to turn media support off entirely.
+
+Media embeddings record which model produced them and are only compared against vectors from that same model, so changing the media model (or its quantization) strands whatever is already indexed - `scout clean` and re-index after one.
 
 ## Status
 

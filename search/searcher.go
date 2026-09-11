@@ -159,7 +159,16 @@ func (s *Searcher) Search(query string, opts Options) (Results, error) {
 
 		media, mediaEmbedElapsed, mediaQueryElapsed, err = s.searchMedia(query, mediaMax, restrictPrefix)
 		if err != nil {
-			return Results{}, err
+			// Media is additive, so a media failure costs the media
+			// results and nothing else - returning the error here would
+			// throw away the text results this search already has in
+			// hand, turning "no images matched" into "no search at all".
+			// The worker dying mid-run is the case that matters: a model
+			// directory missing its files fails the worker's eager load
+			// (see media/clip.py), which only surfaces here, on the first
+			// job sent to it.
+			s.Logger.Printf("media search unavailable, returning text results only: %v", err)
+			media = nil
 		}
 	}
 
