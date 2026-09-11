@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/dyakubu/scout/app"
@@ -167,13 +169,6 @@ func main() {
 	// archive would otherwise spawn a worker per run just to watch it die
 	// on its own missing-model error.
 	//
-	// Run via "uv run --project media media/worker.py" rather than a bare
-	// python3, since real inference needs the media/ project's own
-	// virtualenv (onnxruntime/pillow/etc.), not whatever's on PATH. Both
-	// paths in mediaCommand below are repo-relative, not resolved against
-	// the binary the way the embedder's asset paths are - there's no
-	// packaged distribution story for the media worker yet, so this only
-	// works run from the repo root during development.
 	// The model id is a caller-chosen label for now, not a hash of the
 	// actual model files the way LocalEmbedder.ModelID() hashes the ONNX
 	// file - see mediaworker.Start's doc comment. It names the exact
@@ -186,7 +181,7 @@ func main() {
 
 	var mediaEmbedder embedder.MediaEmbedder
 	if (args[1] == "index" || args[1] == "find") && mediaModelAvailable(cfg.Media.ModelDir, logger) {
-		mediaCommand := []string{"uv", "run", "--project", "media", "media/worker.py"}
+		mediaCommand := mediaWorkerCommand(logger)
 		mediaClient, err := mediaworker.Start(mediaCommand, cfg.Media.ModelDir, mediaModelID)
 		if err != nil {
 			logger.Printf("media worker unavailable, continuing without media support: %v", err)
@@ -258,4 +253,66 @@ func mediaModelAvailable(modelDir string, logger *log.Logger) bool {
 	}
 
 	return true
+}
+
+// mediaWorkerCommand returns the command line to run the media worker
+// with, preferring the Python interpreter bundled in scout's own release
+// archive and falling back to "uv run" for a repo checkout, which has no
+// bundled interpreter.
+//
+// The bundled tree is scout's private interpreter, not the user's: it
+// resolves its own stdlib from its own location, needs no Python installed
+// on the machine, and never appears on anyone's PATH. -E and -s make it
+// ignore PYTHONHOME/PYTHONPATH and any user site-packages, so a Python
+// environment configured for something else entirely can't reach into it.
+// Not -I, which would be the obvious way to ask for that isolation: -I
+// also implies -P, which stops Python putting the script's own directory
+// on sys.path, and worker.py imports clip.py from exactly there.
+func mediaWorkerCommand(logger *log.Logger) []string {
+	dir, err := execDir()
+	if err != nil {
+		logger.Printf("resolving scout's own directory for the media worker, falling back to uv: %v", err)
+		return devMediaCommand
+	}
+
+	worker := filepath.Join(dir, "media", "worker.py")
+
+	python := filepath.Join(dir, "media", "python", "bin", "python3")
+	if runtime.GOOS == "windows" {
+		// python-build-standalone's Windows layout puts the interpreter at
+		// the root of the tree rather than in bin/.
+		python = filepath.Join(dir, "media", "python", "python.exe")
+	}
+
+	if _, err := os.Stat(python); err != nil {
+		logger.Printf("no bundled media worker interpreter at %s, falling back to uv: %v", python, err)
+		return devMediaCommand
+	}
+
+	return []string{python, "-E", "-s", worker}
+}
+
+// devMediaCommand runs the worker out of a repo checkout, through the
+// media/ project's own uv-managed virtualenv - the dependencies it needs
+// aren't on a bare python3 on PATH. Both paths are relative to the
+// working directory, so unlike the bundled command this only works when
+// run from the repo root.
+var devMediaCommand = []string{"uv", "run", "--project", "media", "media/worker.py"}
+
+// execDir returns the directory containing the running scout binary, with
+// symlinks resolved - the same convention config uses to find the assets
+// that ship beside the binary (see config.execDir, which resolves the
+// asset paths in scoutconfig.toml the same way).
+func execDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolving executable path: %w", err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", fmt.Errorf("resolving executable symlinks: %w", err)
+	}
+
+	return filepath.Dir(resolved), nil
 }

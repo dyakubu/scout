@@ -1,9 +1,10 @@
 name: release
 
-# Builds a self-contained scout archive per platform (binary + model +
-# tokenizer + onnxruntime, see scripts/package-release.sh) and attaches them
-# as draft release assets. CGO rules out cross-compiling from one machine,
-# so each platform is built natively on its own runner.
+# Builds a self-contained scout archive per platform (binary + models +
+# onnxruntime + the media worker and its own Python interpreter, see
+# scripts/package-release.sh) and attaches them as draft release assets.
+# CGO rules out cross-compiling from one machine, so each platform is built
+# natively on its own runner.
 on:
   push:
     tags:
@@ -65,7 +66,14 @@ jobs:
         shell: bash
         run: echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
 
-      - name: Fetch native dependencies (onnxruntime)
+      # uv installs the media worker's dependencies into the bundled Python
+      # interpreter at packaging time (see scripts/package-release.sh).
+      # It's a build tool only - nothing in the released archive needs uv,
+      # or any Python, on the user's machine. Pinned to an exact release:
+      # setup-uv publishes no floating major tag to track.
+      - uses: astral-sh/setup-uv@v10.1.0
+
+      - name: Fetch runtime dependencies (onnxruntime, CLIP model, python)
         shell: bash
         run: scripts/fetch-deps.sh
 

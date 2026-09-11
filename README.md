@@ -128,15 +128,19 @@ Every embedding is produced by a small transformer model running entirely in-pro
 
 The tradeoff is that scout ships a real (if small, quantized) ML model and a native ONNX Runtime library per platform, rather than a pure-Go binary. See [Installing](#installing) below.
 
-### Optional: image search (media worker)
+### Image search (media worker)
 
 Scout can also embed images using [CLIP](https://openai.com/research/clip), so `scout find` can turn up matching photos alongside matching text. It runs as a **separate Python subprocess** (`media/worker.py`) that scout's `mediaworker` package talks to over stdin/stdout, one JSON job per line.
 
 The worker runs CLIP ViT-B/32 through ONNX Runtime rather than PyTorch. It's the same model either way, but the quantized ONNX towers are ~126MB against torch's ~605MB checkpoint, the dependencies are ~144MB installed against ~764MB, and the worker starts in ~0.5s instead of ~2.4s - which scout pays on every `find`, since the query embed waits on the worker's model load. Quantization costs some fidelity: embeddings sit 0.94-0.99 cosine from the fp32 torch ones, close enough to rank the same. `media/test_clip.py` pins that against reference vectors captured from the original torch implementation.
 
-The model itself is resolved like every other scout asset - `media.model_dir`, relative to the binary's own directory, defaulting to `models/media` - and is never downloaded. Launching the worker is what's still **development-only**: it runs `uv run --project media media/worker.py`, resolved relative to a repo checkout rather than the installed binary, so a release archive can carry the model without yet being able to run it.
+**You don't need Python installed.** The release archive carries its own, in `media/python` - a relocatable [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter with the worker's four dependencies (onnxruntime, numpy, Pillow, tokenizers) already in its `site-packages`. It resolves its own stdlib from the path of its own executable, so it works wherever the archive is unpacked, needs no virtualenv, never goes on your `PATH`, and can't collide with a Python you already have. Scout runs it with `-E -s`, so `PYTHONPATH`, `PYTHONHOME`, and user site-packages can't reach into it either. It's scout's private file, the same as the ONNX Runtime library next to it.
 
-Every media failure degrades to text-only rather than breaking a run: no `media.model_dir`, nothing at the path it names, `uv` missing, dependencies not installed, or the worker dying on an incomplete model directory. Scout logs it and carries on. Indexing and search never hard-fail because of the media path.
+The model is resolved like every other scout asset - `media.model_dir`, relative to the binary's own directory, defaulting to `models/media` - and is never downloaded. Set `media.model_dir = ""` to turn media support off.
+
+Every media failure degrades to text-only rather than breaking a run: no `media.model_dir`, nothing at the path it names, a model directory missing files, or a worker that won't start. Scout logs it and carries on. Indexing and search never hard-fail because of the media path.
+
+In a repo checkout there's no bundled interpreter, so the worker falls back to `uv run --project media media/worker.py`, which needs `uv` and a `uv sync` in `media/` (see [Development](#development)).
 
 ## Installing
 
@@ -154,7 +158,18 @@ below instead.
 
 ### From a release
 
-Download the archive for your platform from the [Releases](https://github.com/dyakubu/scout/releases) page and extract it. It contains the `scout` binary plus its model, tokenizer config, and ONNX Runtime library, all pre-wired to find each other. Add the extracted directory to your `PATH`, or invoke `./scout` directly from inside it.
+Download the archive for your platform from the [Releases](https://github.com/dyakubu/scout/releases) page and extract it. Add the extracted directory to your `PATH`, or invoke `./scout` directly from inside it. It's self-contained - everything is pre-wired to find everything else, and nothing is fetched on first run:
+
+```
+scout                                the binary
+models/model_qint8_avx512_vnni.onnx  text embedding model
+models/tokenizer.json                its tokenizer's vocab
+models/media/                        CLIP model for image search
+third_party/onnxruntime/             ONNX Runtime, loaded at runtime
+media/                               image search worker + its Python interpreter
+```
+
+That comes to ~220MB compressed, ~430MB unpacked, a bit over half of which is image search. Deleting `media/` and `models/media` leaves text search working exactly as before, if you'd rather not carry it.
 
 Supported platforms: macOS (Apple Silicon), Linux (x86_64/arm64), and Windows (x86_64).
 
@@ -166,12 +181,12 @@ Requires Go 1.25+ and a C compiler (cgo is required, `onnxruntime_go` and the mo
 git clone https://github.com/dyakubu/scout.git
 cd scout
 
-scripts/fetch-deps.sh          # downloads onnxruntime for your platform
+scripts/fetch-deps.sh          # onnxruntime, CLIP model, and python, for your platform
 
 VERSION=dev scripts/package-release.sh
 ```
 
-This produces `dist/scout-dev-<os>-<arch>.tar.gz`, the same self-contained archive a release build produces. On Windows, cgo needs a MinGW-w64 toolchain (see `.github/workflows/release.yml` for the CI setup via MSYS2).
+This produces `dist/scout-dev-<os>-<arch>.tar.gz`, the same self-contained archive a release build produces. Packaging also needs [uv](https://docs.astral.sh/uv/), which installs the media worker's dependencies into the bundled interpreter - a build-time tool only, never required of anyone running scout. On Windows, cgo needs a MinGW-w64 toolchain (see `.github/workflows/release.yml` for the CI setup via MSYS2).
 
 ## Usage
 
@@ -242,7 +257,7 @@ go build ./...
 go test ./...
 ```
 
-* `scripts/fetch-deps.sh`: fetches the native ONNX Runtime library for your platform into `third_party/` (gitignored).
+* `scripts/fetch-deps.sh`: fetches everything scout ships but doesn't commit - the ONNX Runtime library and a standalone Python into `third_party/`, the CLIP model into `models/media/` (all gitignored). Model files are pinned to an exact upstream revision and checksum-verified.
 * `scripts/package-release.sh`: builds the binary and assembles a self-contained release archive in `dist/` (gitignored).
 * `embedder/embeddertest/`: a fake `Embedder`/`MediaEmbedder` for tests that don't want to load a real model.
 
@@ -266,4 +281,4 @@ Scout is an early, personal-scale project, not yet hardened for huge corpora or 
 
 * Chunking is fixed-size, not semantic (no sentence/paragraph awareness yet).
 * The kNN search pulls a bounded candidate pool before filtering, so a narrow `--restrict` can occasionally return fewer results than `--max`.
-* Image search is dev-only; there's no packaged distribution story for the Python media worker yet.
+* Image search adds ~185MB to the release archive, including a Python interpreter, and text-only users pay for it too.
