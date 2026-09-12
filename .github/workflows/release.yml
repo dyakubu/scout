@@ -72,6 +72,18 @@ jobs:
       # exactly, since setup-uv publishes no floating major tag.
       - uses: astral-sh/setup-uv@v10.1.0
 
+      # ~200MB per platform from three hosts, and HuggingFace answers 429
+      # when the matrix fetches in parallel. Every version is pinned inside
+      # fetch-deps.sh, so hashing it invalidates the cache when a pin moves.
+      # On a hit the fetch step finds the files already in place and skips.
+      - name: Cache runtime dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party
+            models/media
+          key: deps-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('scripts/fetch-deps.sh') }}
+
       - name: Fetch runtime dependencies (onnxruntime, CLIP model, python)
         shell: bash
         run: scripts/fetch-deps.sh

@@ -74,6 +74,13 @@ case "$GOOS-$GOARCH" in
     ;;
 esac
 
+# Retries transient failures. The release matrix fetches all four platforms
+# at once and HuggingFace answers 429; curl treats 429/5xx/timeouts as
+# transient, while a 404 from a bad pin still fails immediately.
+fetch() {
+  curl -fsSL --retry 5 --retry-delay 3 --retry-max-time 180 "$1" -o "$2"
+}
+
 # shasum is macOS/BSD-native; Linux and Git Bash ship sha256sum instead.
 verify_sha256() {
   local file="$1" want="$2" got
@@ -102,7 +109,7 @@ else
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   archive="$tmp/ort.${ORT_ASSET##*.}"
-  curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ORT_ASSET}" -o "$archive"
+  fetch "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ORT_ASSET}" "$archive"
 
   # The release ships .tgz for macOS/Linux and .zip for Windows.
   case "$ORT_ASSET" in
@@ -142,7 +149,7 @@ do
   echo "fetching clip model $name"
   # Renamed into place only once the checksum matches, so an interrupted or
   # corrupted fetch can't leave a file later runs treat as complete.
-  curl -fsSL "https://huggingface.co/${CLIP_REPO}/resolve/${CLIP_REVISION}/${repo_path}" -o "$CLIP_DIR/$name.partial"
+  fetch "https://huggingface.co/${CLIP_REPO}/resolve/${CLIP_REVISION}/${repo_path}" "$CLIP_DIR/$name.partial"
   verify_sha256 "$CLIP_DIR/$name.partial" "$want_sha"
   mv "$CLIP_DIR/$name.partial" "$CLIP_DIR/$name"
 done
@@ -156,7 +163,7 @@ else
 
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  curl -fsSL "https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_RELEASE}/${PYTHON_ASSET}" -o "$tmp/python.tar.gz"
+  fetch "https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_RELEASE}/${PYTHON_ASSET}" "$tmp/python.tar.gz"
   tar -xzf "$tmp/python.tar.gz" -C "$tmp"
 
   # Replaced wholesale rather than merged, so a re-fetch can't leave files
