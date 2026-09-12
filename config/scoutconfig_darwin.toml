@@ -49,14 +49,9 @@ allowed_extensions = [
     ".pdf",
 ]
 
-# Directories skipped everywhere, regardless of .gitignore. Matched as
-# globs against the directory's own name, at any depth, so version-stamped
-# directories can be caught by pattern. A .gitignore in the indexed
-# directory, if present, is always respected on top of this.
-#
-# Dot-prefixed directories are skipped already (see index_hidden_dirs
-# below); the ones listed here stay listed so they're still excluded if
-# that's ever turned on.
+# Directories skipped at any depth, matched as globs against the directory
+# name. A .gitignore in the indexed directory applies on top of this.
+# Dot-prefixed entries only matter if index_hidden_dirs is turned on.
 ignore_dirs = [
     # Version control
     ".git", ".svn", ".hg",
@@ -79,17 +74,13 @@ ignore_dirs = [
     "Library", "Applications",
 ]
 
-# Dot-prefixed directories (.cursor, .vscode, .pyenv, .npm, and whatever
-# the next tool you install creates) hold machine state, not documents, and
-# on a home directory they outnumber everything else. Set this to true to
-# walk them anyway. The directory you name on the command line is always
-# walked, even if it's hidden.
+# Dot-prefixed directories (.cursor, .pyenv, .npm) hold tool state, and on
+# a home directory they outnumber everything else. Set true to walk them.
+# A hidden directory named on the command line is always walked.
 index_hidden_dirs = false
-# Directories skipped based on a marker file inside them, regardless of
-# what the directory itself is named. A Python virtualenv always has a
-# pyvenv.cfg at its root, even though the venv directory itself can be
-# named anything ("venv", ".venv", "rl-venv", "my-project-env", ...), which
-# no name pattern can reliably cover.
+# Directories skipped by a marker file inside them, whatever they're named.
+# A virtualenv always has pyvenv.cfg at its root but can be called
+# anything, which no name pattern covers reliably.
 ignore_dir_markers = [
     "pyvenv.cfg",
 ]

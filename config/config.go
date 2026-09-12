@@ -56,13 +56,9 @@ type IndexConfig struct {
 	IgnoreDirs        []string `toml:"ignore_dirs"`
 	IgnorePatterns    []string `toml:"ignore_patterns"`
 
-	// IndexHiddenDirs opts into walking dot-prefixed directories, which are
-	// skipped by default as tool state rather than anyone's documents.
-	//
-	// Phrased as opt-in rather than opt-out because config files are never
-	// backfilled: a field added after a user's config was written decodes
-	// as its zero value forever. False has to be the behavior worth
-	// defaulting to, or every existing install keeps the old one.
+	// IndexHiddenDirs walks dot-prefixed directories, skipped by default.
+	// Opt-in, not opt-out: configs are never backfilled, so the zero value
+	// has to be the behavior worth defaulting to.
 	IndexHiddenDirs bool `toml:"index_hidden_dirs"`
 
 	// IgnoreDirMarkers names files whose presence inside a directory means

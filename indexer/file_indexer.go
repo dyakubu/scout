@@ -164,30 +164,19 @@ func NewFileIndexer(db *sql.DB, embedder embedder.Embedder, indexConfig config.I
 // venv directory itself is called), or it's excluded by the root
 // .gitignore.
 func (fi *FileIndexer) shouldSkipDir(rootDir, path, name string, gitignoreRules []gitignoreRule) bool {
-	// A dot-prefixed directory is tool state - editor extensions, language
-	// version managers, package caches - far more often than it's anything
-	// a person wrote and would search for. Skipping the whole class by
-	// default is what keeps indexing a home directory from being dominated
-	// by whatever happens to be installed on it. The directory named on the
-	// command line is exempt: naming it is intent.
-	//
-	// This is a POSIX notion of hidden. Windows marks directories hidden
-	// with a file attribute instead, so junk like AppData has to be named
-	// in IgnoreDirs there.
+	// Dot-prefixed only, so Windows' hidden attribute isn't covered - see
+	// AppData in the shipped IgnoreDirs. The root is exempt: naming it is
+	// intent.
 	if !fi.IndexConfig.IndexHiddenDirs && path != rootDir && strings.HasPrefix(name, ".") {
 		return true
 	}
 
+	// Globs, since junk directories are often version-stamped. A pattern
+	// with no metacharacters compares exactly; a malformed one falls back
+	// to its literal name.
 	for _, pattern := range fi.IndexConfig.IgnoreDirs {
-		// Glob, not equality: the directories worth ignoring are often
-		// version-stamped (an editor extension is "ms-python.debugpy-
-		// 2026.6.0-darwin-arm64" this week and something else next week),
-		// and no fixed name can keep up. A pattern with no metacharacters
-		// still compares exactly, so plain entries behave as before.
 		matched, err := filepath.Match(pattern, name)
 		if err != nil {
-			// Malformed pattern: treat it as the literal name it looks
-			// like rather than silently matching nothing.
 			matched = pattern == name
 		}
 		if matched {

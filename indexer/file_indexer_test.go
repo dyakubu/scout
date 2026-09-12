@@ -104,9 +104,8 @@ func TestShouldSkipDir_ExactNameMatch(t *testing.T) {
 	}
 }
 
-// Hidden directories are the bulk of what makes indexing a home directory
-// useless - editor extensions, language version managers, package caches -
-// so they're skipped without having to be enumerated.
+// Hidden directories are the bulk of a home directory, and skipping them
+// can't depend on enumerating every tool that makes one.
 func TestShouldSkipDir_HiddenSkippedByDefault(t *testing.T) {
 	fi := newTestIndexer(t)
 
@@ -116,8 +115,7 @@ func TestShouldSkipDir_HiddenSkippedByDefault(t *testing.T) {
 		}
 	}
 
-	// Naming a hidden directory on the command line is explicit intent, so
-	// the root of the walk is always walked.
+	// The root is always walked, hidden or not.
 	if fi.shouldSkipDir("/root/.config", "/root/.config", ".config", nil) {
 		t.Error("shouldSkipDir on the root directory itself = true, want false")
 	}
@@ -130,14 +128,14 @@ func TestShouldSkipDir_HiddenOptIn(t *testing.T) {
 	if fi.shouldSkipDir("/root", "/root/.cursor", ".cursor", nil) {
 		t.Error("shouldSkipDir(.cursor) = true with index_hidden_dirs set, want false")
 	}
-	// Entries in IgnoreDirs still apply when hidden directories are walked.
+	// IgnoreDirs still applies.
 	if !fi.shouldSkipDir("/root", "/root/.git", ".git", nil) {
 		t.Error("shouldSkipDir(.git) = false, want true - it's still in IgnoreDirs")
 	}
 }
 
-// Directories worth ignoring are often version-stamped, so IgnoreDirs
-// entries are globs. An exact name still behaves exactly.
+// IgnoreDirs entries are globs, since junk directories are often
+// version-stamped.
 func TestShouldSkipDir_GlobPattern(t *testing.T) {
 	fi := newTestIndexer(t)
 	fi.IndexConfig.IgnoreDirs = []string{"node_modules", "cmake-build-*", "*@v*", "ms-python.*"}
@@ -162,8 +160,7 @@ func TestShouldSkipDir_GlobPattern(t *testing.T) {
 	}
 }
 
-// A malformed glob shouldn't silently stop matching - it's almost
-// certainly meant as a literal directory name.
+// A malformed glob is almost certainly meant as a literal name.
 func TestShouldSkipDir_MalformedPatternFallsBackToName(t *testing.T) {
 	fi := newTestIndexer(t)
 	fi.IndexConfig.IgnoreDirs = []string{"weird[name"}
