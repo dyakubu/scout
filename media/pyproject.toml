@@ -11,6 +11,10 @@ dependencies = [
     "onnxruntime>=1.20",
     "numpy>=1.26",
     "pillow>=10.0",
+    # HEIC is the default photo format on iPhone and on macOS screenshots.
+    # Pillow has no HEIF support of its own; the wheels here bundle libheif,
+    # so nothing is needed on the user's machine.
+    "pillow-heif>=0.15",
     "tokenizers>=0.19",
 ]
 

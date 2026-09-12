@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from clip import (
     CONTEXT_LENGTH,
@@ -135,3 +136,34 @@ def test_truncated_query_stays_terminated(model):
     to_unrelated = cosine(truncated, embed_text(sessions, tokenizer, "a bowl of soup on a wooden table"))
 
     assert to_prefix > to_unrelated
+
+
+def test_heic_decodes_and_embeds(model, tmp_path):
+    """HEIC is what iPhones and macOS screenshots produce, so a photo
+    library is mostly invisible without it. Pillow can't read HEIF on its
+    own - clip.py registers pillow-heif's opener at import - so this fails
+    outright if that registration ever goes away.
+
+    The comparison is relative because HEIC is lossy: re-encoding a smooth
+    gradient moves it about 0.91, while a genuinely different image sits
+    near 0.70. What matters is the gap, not an absolute threshold.
+    """
+    sessions, _ = model
+
+    source = TESTDATA / "gradient.png"
+    other = TESTDATA / "checker.png"
+
+    heic = tmp_path / "gradient.heic"
+    Image.open(source).convert("RGB").save(heic, format="HEIF")
+
+    from_source = embed_image(sessions, str(source))
+    from_heic = embed_image(sessions, str(heic))
+    from_other = embed_image(sessions, str(other))
+
+    same = cosine(from_source, from_heic)
+    different = cosine(from_source, from_other)
+
+    assert same > different + 0.1, (
+        f"the HEIC re-encode embeds {same:.4f} from its own source but "
+        f"{different:.4f} from an unrelated image - too close to tell apart"
+    )

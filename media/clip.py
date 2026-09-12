@@ -15,8 +15,13 @@ from typing import NamedTuple
 
 import numpy as np
 import onnxruntime as ort
+import pillow_heif
 from PIL import Image
 from tokenizers import Tokenizer
+
+# Teaches Image.open to read HEIC/HEIF, so preprocess_image needs no
+# special case for them.
+pillow_heif.register_heif_opener()
 
 # ONNX exports of openai/clip-vit-base-patch32, quantized to q4f16.
 # scripts/fetch-deps.sh downloads them at build time; nothing here fetches

@@ -24,7 +24,7 @@ model_dir = "models/media"
 
 # Closed list, same convention as index.allowed_extensions below: a file
 # is only sent to the media embedder if its extension is here.
-allowed_extensions = [".jpg", ".jpeg", ".png"]
+allowed_extensions = [".jpg", ".jpeg", ".png", ".heic", ".heif"]
 
 [db]
 # Relative paths are resolved against this config file's own directory.
@@ -112,6 +112,7 @@ jpg  = 50
 jpeg = 50
 png  = 50
 heic = 50
+heif = 50
 
 [search]
 # Default result counts for `scout find`, overridable per-call with
