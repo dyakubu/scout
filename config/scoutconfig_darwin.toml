@@ -106,12 +106,12 @@ ignore_patterns = [
 # This table has to stay at the end of [index]: everything after a TOML
 # sub-table header belongs to that sub-table.
 [index.max_file_size_mb_by_type]
-pdf  = 20
-docx = 10
-jpg  = 25
-jpeg = 25
-png  = 25
-heic = 25
+pdf  = 50
+docx = 25
+jpg  = 50
+jpeg = 50
+png  = 50
+heic = 50
 
 [search]
 # Default result counts for `scout find`, overridable per-call with

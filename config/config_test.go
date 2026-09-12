@@ -321,7 +321,7 @@ func TestLoad_SizeOverridesDecodeWithoutSwallowingSiblings(t *testing.T) {
 		t.Errorf("MaxFileSizeMB = %d, want the 2MB fallback", cfg.Index.MaxFileSizeMB)
 	}
 
-	for ext, want := range map[string]int{"pdf": 20, "docx": 10, "heic": 25} {
+	for ext, want := range map[string]int{"pdf": 50, "docx": 25, "heic": 50} {
 		if got := cfg.Index.MaxFileSizeMBByType[ext]; got != want {
 			t.Errorf("MaxFileSizeMBByType[%q] = %d, want %d", ext, got, want)
 		}

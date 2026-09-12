@@ -227,9 +227,14 @@ scout index ~/notes --recursive=false   # just that directory, no subdirectories
 
 Walks `path`, skipping anything matched by a `.gitignore` in the tree,
 `index.ignore_dirs` / `index.ignore_patterns` / `index.ignore_dir_markers`,
-files over `index.max_file_size_mb`, and extensions not listed in
-`index.allowed_extensions`. Directories it has no permission to read are
-skipped and counted.
+oversized files, and extensions not listed in `index.allowed_extensions`.
+Directories it has no permission to read are skipped and counted.
+
+Size limits are per file type: `index.max_file_size_mb` is the fallback
+(2MB), and `index.max_file_size_mb_by_type` overrides it by extension.
+Formats that carry their own media are mostly container - a PDF's page
+images, a photo's full resolution - so they ship with far more room than
+source files get.
 
 Re-running it is cheap: files whose modification time hasn't changed are
 skipped without re-embedding.
