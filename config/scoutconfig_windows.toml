@@ -48,7 +48,7 @@ allowed_extensions = [
     ".html", ".css", ".scss",
     ".json", ".yaml", ".yml", ".toml", ".xml",
     ".swift", ".kt",
-    ".pdf",
+    ".pdf", ".docx",
 ]
 
 # Directories skipped at any depth, matched as globs against the directory

@@ -673,12 +673,15 @@ func ReadFile(path string) (string, error) {
 }
 
 // extractText returns the text to chunk and embed for path. raw is path's
-// already-read file content, reused directly for every type except PDFs,
-// which need their own extraction step to turn PDF structure into plain
-// text.
+// already-read file content, used directly for every type except those
+// with structure of their own to unpack first.
 func extractText(path string, raw []byte) (string, error) {
-	if strings.ToLower(filepath.Ext(path)) == ".pdf" {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".pdf":
+		// Re-opened by path: the pdf reader wants a ReaderAt over the file.
 		return extractPDFText(path)
+	case ".docx":
+		return extractDOCXText(raw)
 	}
 
 	return string(raw), nil
