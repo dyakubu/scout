@@ -67,6 +67,16 @@ type Encoding struct {
 // tokenization scheme.
 type Tokenizer interface {
 	Encode(text string) Encoding
+
+	// CountContentTokens returns how many tokens text produces, before
+	// [CLS]/[SEP] are added and before any truncation - what Encode would
+	// have to drop, if anything.
+	CountContentTokens(text string) int
+
+	// ContentBudget returns how many content tokens Encode can keep. Text
+	// producing more than this loses the excess silently, so callers
+	// sizing input for the model need to check against it.
+	ContentBudget() int
 }
 
 // BertTokenizer implements WordPiece tokenization for one loaded
@@ -156,6 +166,23 @@ func NewBertTokenizer(path string) (*BertTokenizer, error) {
 // WordPiece tokens (truncated if needed), [SEP], then right-padded with
 // [PAD] up to MaxLen. TypeIDs is always all zero - scout only ever embeds
 // a single sequence, never a sentence pair.
+// CountContentTokens tokenizes text without truncating or padding, so the
+// result can be compared against ContentBudget to tell whether Encode
+// would drop part of it.
+func (t *BertTokenizer) CountContentTokens(text string) int {
+	var n int
+	for _, word := range t.preTokenize(t.normalize(text)) {
+		n += len(t.wordpiece(word))
+	}
+	return n
+}
+
+// ContentBudget is the sequence length from tokenizer.json's truncation
+// config, less the two positions [CLS] and [SEP] occupy.
+func (t *BertTokenizer) ContentBudget() int {
+	return t.maxLen - 2
+}
+
 func (t *BertTokenizer) Encode(text string) Encoding {
 	words := t.preTokenize(t.normalize(text))
 

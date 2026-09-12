@@ -20,6 +20,9 @@ import (
 )
 
 const (
+	// chunkSize is the rune ceiling on one chunk. The model's real limit
+	// is a token count, enforced separately (see FileIndexer.chunkLimits),
+	// which is what most chunks of dense content actually hit first.
 	chunkSize = 500
 
 	// writeGroupSize bounds how many chunks of one file are embedded and
@@ -462,7 +465,7 @@ func (fi *FileIndexer) processFile(path string, emitter Emitter) (ProcessFileRes
 		return ProcessFileResult{}, err
 	}
 
-	chunks, err := ChunkText(content, chunkSize)
+	chunks, err := ChunkText(content, fi.chunkLimits())
 	if err != nil {
 		return ProcessFileResult{}, err
 	}
@@ -599,6 +602,17 @@ func (fi *FileIndexer) processMediaFile(path string, emitter Emitter) (ProcessFi
 	fi.Logger.Printf("processed %s: media embed=%s total=%s", path, embedElapsed, time.Since(processStart))
 
 	return ProcessFileResult{}, nil
+}
+
+// chunkLimits bounds a chunk by both the rune ceiling and the embedding
+// model's token budget, so no chunk is ever handed to the model with more
+// text than it will actually read.
+func (fi *FileIndexer) chunkLimits() ChunkLimits {
+	return ChunkLimits{
+		MaxRunes:    chunkSize,
+		MaxTokens:   fi.Embedder.TokenBudget(),
+		CountTokens: fi.Embedder.CountTokens,
+	}
 }
 
 // isUnchanged reports whether path is already indexed with this exact

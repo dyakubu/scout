@@ -100,6 +100,17 @@ func (e *LocalEmbedder) ModelID() string {
 	return e.modelID
 }
 
+// TokenBudget and CountTokens expose the tokenizer's limits, since the
+// model's real input size is measured in tokens while the text handed to
+// it is chunked by runes.
+func (e *LocalEmbedder) TokenBudget() int {
+	return e.tokenizer.ContentBudget()
+}
+
+func (e *LocalEmbedder) CountTokens(text string) int {
+	return e.tokenizer.CountContentTokens(text)
+}
+
 func hiddenDimOf(outputs []ort.InputOutputInfo) (int64, error) {
 	for _, out := range outputs {
 		if out.Name != outputName {

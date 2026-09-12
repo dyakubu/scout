@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/dyakubu/scout/config"
@@ -164,13 +165,15 @@ func TestIsUnchanged(t *testing.T) {
 	}
 }
 
-// ChunkText itself is deliberately not covered in depth here - it's
-// already flagged (issues #3, #8) for replacement with boundary/token-
-// aware chunking, so a detailed spec against its current fixed-length
-// behavior would mostly lock in something already known to be wrong. This
-// is just enough to catch a crash or a badly broken boundary.
+// ChunkText's boundary strategy is deliberately not specified in depth
+// here - it's flagged (issue #3) for replacement with structure-aware
+// chunking, so pinning its current fixed-length behavior would lock in
+// something already known to be crude. This is just enough to catch a
+// crash or a badly broken boundary.
 func TestChunkText_Basics(t *testing.T) {
-	chunks, err := ChunkText("", 10)
+	runeLimit := ChunkLimits{MaxRunes: 10}
+
+	chunks, err := ChunkText("", runeLimit)
 	if err != nil {
 		t.Fatalf("ChunkText(\"\"): %v", err)
 	}
@@ -178,16 +181,16 @@ func TestChunkText_Basics(t *testing.T) {
 		t.Errorf("ChunkText(\"\") returned %d chunks, want 0", len(chunks))
 	}
 
-	chunks, err = ChunkText("hello", 10)
+	chunks, err = ChunkText("hello", runeLimit)
 	if err != nil {
 		t.Fatalf("ChunkText: %v", err)
 	}
 	if len(chunks) != 1 || chunks[0].content != "hello" {
-		t.Errorf("ChunkText(\"hello\", 10) = %+v, want a single chunk containing \"hello\"", chunks)
+		t.Errorf("ChunkText(\"hello\") = %+v, want a single chunk containing \"hello\"", chunks)
 	}
 
 	// Multi-byte runes must not be split mid-codepoint.
-	chunks, err = ChunkText("héllo wörld", 5)
+	chunks, err = ChunkText("héllo wörld", ChunkLimits{MaxRunes: 5})
 	if err != nil {
 		t.Fatalf("ChunkText (unicode): %v", err)
 	}
@@ -199,8 +202,77 @@ func TestChunkText_Basics(t *testing.T) {
 		t.Errorf("rebuilt chunks = %q, want the original text intact", rebuilt)
 	}
 
-	if _, err := ChunkText("text", 0); err == nil {
-		t.Error("ChunkText with chunkSize=0: expected an error, got none")
+	if _, err := ChunkText("text", ChunkLimits{MaxRunes: 0}); err == nil {
+		t.Error("ChunkText with MaxRunes=0: expected an error, got none")
+	}
+}
+
+// TestChunkText_RespectsTokenBudget is the real point of ChunkLimits: the
+// model reads a token count, not a character count, and text dense enough
+// to blow the budget inside the rune ceiling used to be handed over and
+// silently truncated.
+func TestChunkText_RespectsTokenBudget(t *testing.T) {
+	// One token per rune, so the budget always bites before MaxRunes.
+	countRunes := func(s string) int { return len([]rune(s)) }
+
+	limits := ChunkLimits{MaxRunes: 100, MaxTokens: 10, CountTokens: countRunes}
+
+	text := strings.Repeat("abcde fghij ", 20) // 240 runes
+	chunks, err := ChunkText(text, limits)
+	if err != nil {
+		t.Fatalf("ChunkText: %v", err)
+	}
+
+	var rebuilt string
+	for _, c := range chunks {
+		if got := countRunes(c.content); got > limits.MaxTokens {
+			t.Errorf("chunk %d is %d tokens, over the budget of %d: %q",
+				c.index, got, limits.MaxTokens, c.content)
+		}
+		rebuilt += c.content
+	}
+
+	if rebuilt != text {
+		t.Error("chunks don't reassemble into the original text - content was dropped")
+	}
+}
+
+// Chunks of text that fits comfortably shouldn't be shortened just because
+// a budget exists.
+func TestChunkText_LeavesSparseTextAtRuneLimit(t *testing.T) {
+	// One token per whitespace-separated word, as in real prose.
+	countWords := func(s string) int { return len(strings.Fields(s)) }
+
+	limits := ChunkLimits{MaxRunes: 50, MaxTokens: 126, CountTokens: countWords}
+
+	chunks, err := ChunkText(strings.Repeat("word ", 40), limits)
+	if err != nil {
+		t.Fatalf("ChunkText: %v", err)
+	}
+
+	for _, c := range chunks[:len(chunks)-1] {
+		if got := len([]rune(c.content)); got != limits.MaxRunes {
+			t.Errorf("chunk %d is %d runes, want the full %d - the token budget was never in play",
+				c.index, got, limits.MaxRunes)
+		}
+	}
+}
+
+// A single rune worth more tokens than the entire budget can't be split
+// any further, and must not spin forever trying.
+func TestChunkText_PathologicalRuneTerminates(t *testing.T) {
+	limits := ChunkLimits{
+		MaxRunes:    10,
+		MaxTokens:   2,
+		CountTokens: func(s string) int { return len([]rune(s)) * 5 },
+	}
+
+	chunks, err := ChunkText("abcde", limits)
+	if err != nil {
+		t.Fatalf("ChunkText: %v", err)
+	}
+	if len(chunks) != 5 {
+		t.Errorf("got %d chunks, want 5 - one per rune, each as small as it can get", len(chunks))
 	}
 }
 

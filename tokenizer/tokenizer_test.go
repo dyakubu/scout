@@ -223,3 +223,47 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestCountContentTokens_MatchesEncode ties the counter to what Encode
+// actually keeps: below the budget they agree exactly, and above it the
+// count keeps climbing while Encode silently stops at the budget. That gap
+// is what chunking has to size against.
+func TestCountContentTokens_MatchesEncode(t *testing.T) {
+	tok := loadTestTokenizer(t)
+
+	budget := tok.ContentBudget()
+	if budget <= 0 {
+		t.Fatalf("ContentBudget() = %d, want a positive budget", budget)
+	}
+
+	short := "exponential backoff with jitter avoids thundering-herd retries"
+	count := tok.CountContentTokens(short)
+	if count > budget {
+		t.Fatalf("test string is longer than the budget (%d > %d)", count, budget)
+	}
+
+	// Encode pads to a fixed width, so the content length is the number of
+	// non-padding positions, less [CLS] and [SEP].
+	enc := tok.Encode(short)
+	var attended int
+	for _, m := range enc.AttentionMask {
+		attended += int(m)
+	}
+	if got := attended - 2; got != count {
+		t.Errorf("CountContentTokens = %d, but Encode kept %d content tokens", count, got)
+	}
+
+	long := strings.Repeat("tokenization density varies by content type. ", 40)
+	if tok.CountContentTokens(long) <= budget {
+		t.Fatal("test string should exceed the budget, adjust it")
+	}
+
+	enc = tok.Encode(long)
+	attended = 0
+	for _, m := range enc.AttentionMask {
+		attended += int(m)
+	}
+	if got := attended - 2; got != budget {
+		t.Errorf("Encode kept %d content tokens for over-budget input, want it capped at %d", got, budget)
+	}
+}

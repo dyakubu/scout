@@ -11,7 +11,10 @@
 // explicit about its vectors avoids that entirely.
 package embeddertest
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Embedder is a fake embedder.Embedder.
 type Embedder struct {
@@ -22,6 +25,14 @@ type Embedder struct {
 	Model string
 	// Err, if set, is returned by Embed instead of a result.
 	Err error
+
+	// Budget is returned by TokenBudget; defaults to 126, matching the
+	// real model's 128-token sequence less [CLS] and [SEP].
+	Budget int
+	// Tokens, if set, counts tokens for CountTokens. The default counts
+	// whitespace-separated words, which is enough for tests that only
+	// care that budgeting happens at all.
+	Tokens func(text string) int
 }
 
 func (f *Embedder) Embed(texts []string) ([][]float32, error) {
@@ -46,6 +57,20 @@ func (f *Embedder) ModelID() string {
 		return "fake-model"
 	}
 	return f.Model
+}
+
+func (f *Embedder) TokenBudget() int {
+	if f.Budget == 0 {
+		return 126
+	}
+	return f.Budget
+}
+
+func (f *Embedder) CountTokens(text string) int {
+	if f.Tokens != nil {
+		return f.Tokens(text)
+	}
+	return len(strings.Fields(text))
 }
 
 // MediaEmbedder is a fake embedder.MediaEmbedder.
