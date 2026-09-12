@@ -192,65 +192,165 @@ This produces `dist/scout-dev-<os>-<arch>.tar.gz`, the same self-contained archi
 
 ## Usage
 
+Two commands get you going: point `scout index` at a directory, then search it
+with `scout find`.
+
 ```
-scout index [path] [--recursive=false]     # index a directory (default: cwd)
+$ scout index ~/notes
+Indexed 3 file(s), 3 chunk(s) embedded, in 20ms
 
-scout find <query> [--max=N] [--restrict[=path]]
-
-scout sync [path]                          # re-index, picking up changes
-
-scout config [get|set|path] [key] [value]  # view or edit config
-
-scout clean                                # remove the search index and log
-
-scout version
+$ scout find "why do retries make an outage worse"
+~/notes/eng/queues.md:1-7  (score: 0.42)
+    # Queue design Exponential backoff with jitter avoids thundering-herd
+    retries when a downstream service comes back up after an outage...
 ```
+
+Indexing is incremental, so re-running it on the same directory only embeds
+what changed. Searching never touches the network, and neither does indexing.
+
+| Command                                | What it does                            |
+| -------------------------------------- | --------------------------------------- |
+| `scout index [path]`                   | Index a directory (default: cwd)         |
+| `scout find <query>`                   | Search what's indexed                    |
+| `scout config [path\|get\|set] ...`     | View or change settings                  |
+| `scout clean`                          | Delete the index and log, start over     |
+| `scout version`                        | Print the version                        |
+| `scout help`                           | Print usage                              |
 
 ### `index`
 
-Walks `path` (recursively by default), skipping anything matched by `.gitignore`, `index.ignore_dirs`/`index.ignore_patterns`, files over `index.max_file_size_mb`, and extensions not in `index.allowed_extensions`.
+```
+scout index                       # index the current directory
+scout index ~/notes               # index a specific directory
+scout index ~/notes --recursive=false   # just that directory, no subdirectories
+```
 
-Unchanged files (by mtime) are skipped on re-index without re-embedding.
+Walks `path`, skipping anything matched by a `.gitignore` in the tree,
+`index.ignore_dirs` / `index.ignore_patterns` / `index.ignore_dir_markers`,
+files over `index.max_file_size_mb`, and extensions not listed in
+`index.allowed_extensions`. Directories it has no permission to read are
+skipped and counted.
+
+Re-running it is cheap: files whose modification time hasn't changed are
+skipped without re-embedding.
 
 ```
-$ scout index ~/projects/my-repo
+$ scout index ~/notes
+Indexed 3 file(s), 3 chunk(s) embedded, in 20ms
 
-Indexed 128 file(s), 2140 chunk(s) embedded, in 3.1s
-
-  56 file(s) unchanged, skipped
-
-  9 file(s) excluded by extension/ignore rules
+$ scout index ~/notes          # nothing changed since last time
+Indexed 0 file(s), 0 chunk(s) embedded, in 0s
+  3 file(s) unchanged, skipped
 ```
+
+The summary lines below the first are only printed when they're non-zero, so a
+run that reports nothing but the first line had nothing to skip.
 
 ### `find`
 
 ```
-scout find "how does retry backoff work" --max=3
-
-scout find "the design doc about caching" --restrict=~/notes/eng
+scout find "how does retry backoff work"
+scout find "the design doc about caching" --max=3
+scout find "cache invalidation" --restrict=~/notes/eng
+scout find "screenshot of the login screen" --media-max=5
 ```
 
-* `--max=N`: number of text results (default from `search.max_results`).
-* `--media-max=N`: number of image results, if a media worker is configured (default from `search.max_media_results`).
-* `--restrict[=path]`: limit results to files under `path` (or the current directory, if given with no value).
+* `--max=N` - how many text results (default: `search.max_results`).
+* `--media-max=N` - how many image results (default: `search.max_media_results`).
+  Only meaningful with image search configured.
+* `--restrict[=path]` - only return results under `path`. With no value, it
+  means the current directory, so `scout find "todo" --restrict` searches
+  where you're standing.
+
+Quote the query. Without quotes the shell splits it into separate arguments
+and scout only sees the first word.
+
+Results are ranked by cosine similarity, printed highest first:
+
+```
+$ scout find "stale data problems" --max=1
+~/notes/eng/caching.md:1-7  (score: 0.60)
+    # Cache invalidation We settled on write-through caching with a short TTL
+    rather than explicit invalidation. Explicit invalidation was correct...
+```
+
+Scores run from about 1.0 (nearly identical meaning) down to 0 and below
+(unrelated). A nearest-neighbour search always returns *something*, so a query
+about a topic you've never written about still comes back with results - they
+just score low. Treat anything under ~0.2 as "no real match" rather than
+expecting an empty list.
+
+In a terminal that supports OSC 8 hyperlinks, the file paths are clickable.
+Piping the output strips the escape codes, so `scout find ... | grep` is safe.
 
 ### `config`
 
 ```
-scout config              # print the full config file
-
-scout config path         # print the config file's location
-
-scout config get db.path
-
+scout config                              # print the whole config file
+scout config path                         # print where that file lives
+scout config get search.max_results       # read one value
+scout config set search.max_results 3     # change one value
 scout config set index.max_file_size_mb 20
 ```
 
-Config lives at `scoutconfig.toml` in scout's per-OS config directory (`~/Library/Application Support/scout` on macOS, `~/.config/scout` on Linux, `%AppData%\scout` on Windows), alongside the search index (SQLite) and a trace log. List-valued fields (`allowed_extensions`, `ignore_dirs`, `ignore_patterns`) are edited directly in the file, not via `config set`.
+```
+$ scout config get search.max_results
+5
+
+$ scout config set search.max_results 3
+search.max_results = 3
+```
+
+List-valued fields - `index.allowed_extensions`, `index.ignore_dirs`,
+`index.ignore_patterns`, `index.ignore_dir_markers`,
+`media.allowed_extensions` - can't be set from the command line. Edit them in
+the file (`scout config path` tells you where it is).
+
+The config file is created from a built-in default the first time scout runs,
+and is never rewritten after that. New settings added by a later version of
+scout won't appear in a config file that already exists - copy them across by
+hand, or delete the file to have it recreated.
+
+### `sync`
+
+Listed by `scout help`, but not implemented yet - it prints what it would do
+and exits. Re-running `scout index` on a directory already picks up changed
+files and skips unchanged ones, which is what `sync` is eventually for.
 
 ### `clean`
 
-Deletes the search index and log file for a completely fresh start. It does not touch `scoutconfig.toml`.
+```
+scout clean
+```
+
+Deletes the search index and the log, so the next `index` starts from nothing.
+Your config file is left alone. Useful after changing an embedding model, since
+vectors from different models aren't comparable and the old ones are ignored
+rather than re-embedded.
+
+## Where scout keeps its files
+
+Everything lives in one directory, whose location follows each OS's own
+convention. `scout config path` prints it.
+
+| OS      | Directory                             |
+| ------- | ------------------------------------- |
+| macOS   | `~/Library/Application Support/scout` |
+| Linux   | `~/.config/scout`                     |
+| Windows | `%AppData%\scout`                     |
+
+| File               | What it is                                                     |
+| ------------------ | -------------------------------------------------------------- |
+| `scoutconfig.toml` | Settings. Yours to edit; scout only writes it on first run.     |
+| `scout.db`         | The search index: SQLite, including the embedding vectors.      |
+| `scout.log`        | Timing and diagnostics, appended on every run. Not truncated.   |
+
+`scout.db` grows with what you index, and the log grows slowly forever -
+`scout clean` removes both.
+
+The model files and the ONNX Runtime library don't live here. They ship inside
+the release archive and are found relative to the `scout` binary itself, which
+is why moving the binary out of its extracted directory breaks it.
 
 ## Development
 
@@ -281,6 +381,7 @@ Media embeddings record which model produced them and are only compared against 
 
 Scout is an early, personal-scale project, not yet hardened for huge corpora or concurrent multi-user use. In particular:
 
+* `scout sync` is a placeholder; re-run `scout index` instead.
 * Chunking is fixed-size, not semantic (no sentence/paragraph awareness yet).
 * The kNN search pulls a bounded candidate pool before filtering, so a narrow `--restrict` can occasionally return fewer results than `--max`.
 * Image search adds ~185MB to the release archive, including a Python interpreter, and text-only users pay for it too.
