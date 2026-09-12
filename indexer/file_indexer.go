@@ -359,7 +359,7 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 			// the tree still gets indexed. Indexing a home directory
 			// reaches plenty of these: macOS denies access to ~/.Trash
 			// and much of ~/Library unless the terminal has been granted
-			// Full Disk Access, and a single one of them used to abort
+			// Full Disk Access, and a single one of them should not abort
 			// the whole run.
 			stats.pathsUnreadable.Add(1)
 			fi.Logger.Printf("skipping %s: %v", path, err)
