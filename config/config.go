@@ -48,6 +48,11 @@ type DBConfig struct {
 type SearchConfig struct {
 	MaxResults      int `toml:"max_results"`
 	MaxMediaResults int `toml:"max_media_results"`
+
+	// MaxResultsPerFile caps how many results one file contributes before
+	// other files get a turn, so a single long document can't fill the
+	// whole result set. Slots left over are filled by score regardless.
+	MaxResultsPerFile int `toml:"max_results_per_file"`
 }
 
 type IndexConfig struct {

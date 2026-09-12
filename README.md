@@ -279,6 +279,12 @@ $ scout find "stale data problems" --max=1
     rather than explicit invalidation. Explicit invalidation was correct...
 ```
 
+Results are spread across documents: one file contributes at most
+`search.max_results_per_file` (2 by default) before others get a turn, so a
+long document can't fill every slot with near-identical chunks. Leftover
+slots are still filled by score, so a query that genuinely matches one
+document still returns a full set.
+
 Scores run from about 1.0 (nearly identical meaning) down to 0 and below
 (unrelated). A nearest-neighbour search always returns *something*, so a query
 about a topic you've never written about still comes back with results - they

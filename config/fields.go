@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -67,6 +68,23 @@ var fields = map[string]field{
 	"index.allowed_extensions": {
 		get: func(cfg *Config) string { return strings.Join(cfg.Index.AllowedExtensions, ", ") },
 	},
+	// Read-only, like the list fields below: a map can't be expressed as a
+	// single command-line value, so it's edited in the file.
+	"index.max_file_size_mb_by_type": {
+		get: func(cfg *Config) string {
+			exts := make([]string, 0, len(cfg.Index.MaxFileSizeMBByType))
+			for ext := range cfg.Index.MaxFileSizeMBByType {
+				exts = append(exts, ext)
+			}
+			sort.Strings(exts)
+
+			pairs := make([]string, 0, len(exts))
+			for _, ext := range exts {
+				pairs = append(pairs, fmt.Sprintf("%s = %d", ext, cfg.Index.MaxFileSizeMBByType[ext]))
+			}
+			return strings.Join(pairs, ", ")
+		},
+	},
 	"index.ignore_dirs": {
 		get: func(cfg *Config) string { return strings.Join(cfg.Index.IgnoreDirs, ", ") },
 	},
@@ -81,6 +99,17 @@ var fields = map[string]field{
 				return fmt.Errorf("expected an integer, got %q", value)
 			}
 			cfg.Search.MaxResults = n
+			return nil
+		},
+	},
+	"search.max_results_per_file": {
+		get: func(cfg *Config) string { return strconv.Itoa(cfg.Search.MaxResultsPerFile) },
+		set: func(cfg *Config, value string) error {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("expected an integer, got %q", value)
+			}
+			cfg.Search.MaxResultsPerFile = n
 			return nil
 		},
 	},

@@ -118,3 +118,11 @@ heif = 50
 # other.
 max_results = 5
 max_media_results = 5
+
+# Caps how many results a single file contributes before other files get a
+# turn. A long document has many chunks, several of which sit near any
+# query it's vaguely related to, and without this it can fill the whole
+# result set - so a near miss on one document hides everything else.
+# Leftover slots are still filled by score, so a query that really does
+# match one document returns a full set.
+max_results_per_file = 2

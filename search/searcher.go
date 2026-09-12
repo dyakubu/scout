@@ -20,6 +20,10 @@ const (
 	// decodes them as zero) - see NewSearcher.
 	fallbackMax = 5
 
+	// fallbackMaxPerFile is used when SearchConfig doesn't set one, which
+	// includes every config file written before the setting existed.
+	fallbackMaxPerFile = 2
+
 	// candidatePoolSize bounds how many nearest neighbors are pulled from
 	// vec_chunks/vec_media before Restrict/model filtering is applied in
 	// Go (vec0 tables here carry no metadata columns of their own, so
@@ -39,6 +43,7 @@ type Searcher struct {
 
 	defaultMax      int
 	defaultMediaMax int
+	maxPerFile      int
 }
 
 // Options configures a single Search call.
@@ -114,6 +119,11 @@ func NewSearcher(db *sql.DB, embedder embedder.Embedder, mediaEmbedder embedder.
 		defaultMediaMax = fallbackMax
 	}
 
+	maxPerFile := searchConfig.MaxResultsPerFile
+	if maxPerFile <= 0 {
+		maxPerFile = fallbackMaxPerFile
+	}
+
 	return &Searcher{
 		Db:              db,
 		Embedder:        embedder,
@@ -121,6 +131,7 @@ func NewSearcher(db *sql.DB, embedder embedder.Embedder, mediaEmbedder embedder.
 		Logger:          logger,
 		defaultMax:      defaultMax,
 		defaultMediaMax: defaultMediaMax,
+		maxPerFile:      maxPerFile,
 	}, nil
 }
 
@@ -193,20 +204,23 @@ func (s *Searcher) searchFiles(query string, max int, restrictPrefix string) ([]
 
 	queryStart := time.Now()
 
-	results, err := retryVecQuery(s.Logger, "vec_chunks", func() ([]Result, error) {
-		return s.scanChunks(queryBlob, max, modelID, restrictPrefix)
+	candidates, err := retryVecQuery(s.Logger, "vec_chunks", func() ([]Result, error) {
+		return s.scanChunks(queryBlob, modelID, restrictPrefix)
 	})
 	if err != nil {
 		return nil, 0, 0, err
 	}
 
-	return results, embedElapsed, time.Since(queryStart), nil
+	return diversify(candidates, max, s.maxPerFile), embedElapsed, time.Since(queryStart), nil
 }
 
 // scanChunks runs one knn query over vec_chunks and collects its results.
 // Separate from searchFiles so retryVecQuery can run it again if
 // sqlite-vec traps partway through.
-func (s *Searcher) scanChunks(queryBlob []byte, max int, modelID, restrictPrefix string) ([]Result, error) {
+// scanChunks returns every candidate the pool holds that passes the model
+// and restrict filters, still ranked by distance. Selecting which of them
+// to return is diversify's job, which needs more than max to choose from.
+func (s *Searcher) scanChunks(queryBlob []byte, modelID, restrictPrefix string) ([]Result, error) {
 	rows, err := s.Db.Query(`
 		SELECT c.content, c.start_line, c.end_line, f.path, v.distance, c.embedding_model
 		FROM (
@@ -226,7 +240,7 @@ func (s *Searcher) scanChunks(queryBlob []byte, max int, modelID, restrictPrefix
 
 	var results []Result
 
-	for rows.Next() && len(results) < max {
+	for rows.Next() {
 		var (
 			content        string
 			startLine      int
