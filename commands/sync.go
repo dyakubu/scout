@@ -1,12 +1,12 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
-	"context"
 
-	"github.com/dyakubu/scout/cli"
 	"github.com/dyakubu/scout/app"
+	"github.com/dyakubu/scout/cli"
 )
 
 type syncCommandOptions struct {
@@ -39,12 +39,12 @@ func Sync(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) error
 		return fmt.Errorf("Unable to resolve path %v. Error: %v", dir, err.Error())
 	}
 
-	return sync(absPath, optionalFlags)
-
+	return runSync(absPath, optionalFlags)
 
 }
 
-func sync(path string, optionalFlags syncCommandOptions) error {
+// Renamed off `sync` so the package can import the sync package.
+func runSync(path string, optionalFlags syncCommandOptions) error {
 
 	fmt.Printf("Syncing %v with the following flags: isRecursive: %v", path, optionalFlags.isRecursive)
 

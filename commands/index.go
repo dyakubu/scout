@@ -40,7 +40,18 @@ func Index(ctx context.Context, args cli.ParsedArgs, deps app.Dependencies) erro
 		return fmt.Errorf("Unable to resolve path %v. Error: %v", dir, err.Error())
 	}
 
+	// Only wired up for a terminal: newProgressPrinter returns nil
+	// otherwise, and leaving Progress unset saves the indexer building a
+	// snapshot per file that nothing would read.
+	progress := newProgressPrinter()
+	if progress != nil {
+		deps.FileIndexer.Progress = progress.update
+		progress.start()
+	}
+
 	stats, err := deps.FileIndexer.IndexDirectory(absPath, recursive)
+
+	progress.finish()
 
 	// An error with nothing visited means IndexDirectory failed before any
 	// work happened - the path doesn't exist, or can't be read - and a

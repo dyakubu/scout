@@ -55,6 +55,11 @@ type FileIndexer struct {
 	MediaConfig   config.MediaConfig
 	MediaEmbedder embedder.MediaEmbedder
 
+	// Progress, if set, is called as files are picked up and finished, so
+	// a long run can show that it's moving. Called from every file worker,
+	// so it has to be safe to call concurrently.
+	Progress func(Progress)
+
 	Logger *log.Logger
 }
 
@@ -308,6 +313,8 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 			defer wg.Done()
 
 			for path := range files {
+				fi.report(&stats, path)
+
 				res, err := fi.processFile(path, writer)
 				if err != nil {
 					stats.errors.Add(1)
@@ -331,6 +338,7 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 					stats.filesIndexed.Add(1)
 				}
 				stats.chunksEmbedded.Add(int64(res.ChunksEmbedded))
+				fi.report(&stats, path)
 
 				if len(res.FailedChunkErrors) > 0 {
 					stats.errors.Add(1)
@@ -357,6 +365,8 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 		defer wg.Done()
 
 		for path := range mediaJobs {
+			fi.report(&stats, path)
+
 			res, err := fi.processMediaFile(path, writer)
 			if err != nil {
 				stats.errors.Add(1)
@@ -376,6 +386,8 @@ func (fi *FileIndexer) IndexDirectory(dir string, recursive bool) (IndexStats, e
 			default:
 				stats.mediaFilesIndexed.Add(1)
 			}
+
+			fi.report(&stats, path)
 		}
 	}()
 
