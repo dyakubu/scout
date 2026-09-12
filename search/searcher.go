@@ -193,6 +193,20 @@ func (s *Searcher) searchFiles(query string, max int, restrictPrefix string) ([]
 
 	queryStart := time.Now()
 
+	results, err := retryVecQuery(s.Logger, "vec_chunks", func() ([]Result, error) {
+		return s.scanChunks(queryBlob, max, modelID, restrictPrefix)
+	})
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	return results, embedElapsed, time.Since(queryStart), nil
+}
+
+// scanChunks runs one knn query over vec_chunks and collects its results.
+// Separate from searchFiles so retryVecQuery can run it again if
+// sqlite-vec traps partway through.
+func (s *Searcher) scanChunks(queryBlob []byte, max int, modelID, restrictPrefix string) ([]Result, error) {
 	rows, err := s.Db.Query(`
 		SELECT c.content, c.start_line, c.end_line, f.path, v.distance, c.embedding_model
 		FROM (
@@ -206,7 +220,7 @@ func (s *Searcher) searchFiles(query string, max int, restrictPrefix string) ([]
 		ORDER BY v.distance
 	`, queryBlob, candidatePoolSize)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("querying vec_chunks: %w", err)
+		return nil, fmt.Errorf("querying vec_chunks: %w", err)
 	}
 	defer rows.Close()
 
@@ -223,7 +237,7 @@ func (s *Searcher) searchFiles(query string, max int, restrictPrefix string) ([]
 		)
 
 		if err := rows.Scan(&content, &startLine, &endLine, &path, &distance, &embeddingModel); err != nil {
-			return nil, 0, 0, fmt.Errorf("reading search result: %w", err)
+			return nil, fmt.Errorf("reading search result: %w", err)
 		}
 
 		// A chunk embedded by a different model lives in an incomparable
@@ -250,10 +264,10 @@ func (s *Searcher) searchFiles(query string, max int, restrictPrefix string) ([]
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, 0, fmt.Errorf("reading search results: %w", err)
+		return nil, fmt.Errorf("reading search results: %w", err)
 	}
 
-	return results, embedElapsed, time.Since(queryStart), nil
+	return results, nil
 }
 
 // searchMedia embeds query with s.MediaEmbedder.EmbedText - into the same
@@ -276,6 +290,19 @@ func (s *Searcher) searchMedia(query string, max int, restrictPrefix string) ([]
 
 	queryStart := time.Now()
 
+	results, err := retryVecQuery(s.Logger, "vec_media", func() ([]MediaResult, error) {
+		return s.scanMedia(queryBlob, max, modelID, restrictPrefix)
+	})
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	return results, embedElapsed, time.Since(queryStart), nil
+}
+
+// scanMedia runs one knn query over vec_media and collects its results,
+// separated from searchMedia for the same reason as scanChunks.
+func (s *Searcher) scanMedia(queryBlob []byte, max int, modelID, restrictPrefix string) ([]MediaResult, error) {
 	rows, err := s.Db.Query(`
 		SELECT m.frame_index, f.path, v.distance, m.embedding_model
 		FROM (
@@ -289,7 +316,7 @@ func (s *Searcher) searchMedia(query string, max int, restrictPrefix string) ([]
 		ORDER BY v.distance
 	`, queryBlob, candidatePoolSize)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("querying vec_media: %w", err)
+		return nil, fmt.Errorf("querying vec_media: %w", err)
 	}
 	defer rows.Close()
 
@@ -304,7 +331,7 @@ func (s *Searcher) searchMedia(query string, max int, restrictPrefix string) ([]
 		)
 
 		if err := rows.Scan(&frameIndex, &path, &distance, &embeddingModel); err != nil {
-			return nil, 0, 0, fmt.Errorf("reading media search result: %w", err)
+			return nil, fmt.Errorf("reading media search result: %w", err)
 		}
 
 		if embeddingModel != modelID {
@@ -323,10 +350,10 @@ func (s *Searcher) searchMedia(query string, max int, restrictPrefix string) ([]
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, 0, fmt.Errorf("reading media search results: %w", err)
+		return nil, fmt.Errorf("reading media search results: %w", err)
 	}
 
-	return results, embedElapsed, time.Since(queryStart), nil
+	return results, nil
 }
 
 // underDir reports whether path is dir itself or falls under it, avoiding
