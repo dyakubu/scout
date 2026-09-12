@@ -49,22 +49,44 @@ allowed_extensions = [
     ".pdf",
 ]
 
-# Directories skipped everywhere, regardless of .gitignore. A .gitignore
-# in the indexed directory, if present, is always respected on top of this.
-# Matched by exact name only - see ignore_dir_markers below for
-# directories that can be named anything (e.g. virtualenvs).
+# Directories skipped everywhere, regardless of .gitignore. Matched as
+# globs against the directory's own name, at any depth, so version-stamped
+# directories can be caught by pattern. A .gitignore in the indexed
+# directory, if present, is always respected on top of this.
+#
+# Dot-prefixed directories are skipped already (see index_hidden_dirs
+# below); the ones listed here stay listed so they're still excluded if
+# that's ever turned on.
 ignore_dirs = [
-    "node_modules", ".git", ".svn", ".hg",
-    "vendor", "dist", "build", ".next",
-    ".venv", "venv", "__pycache__", ".cache", "target",
-    "site-packages",
+    # Version control
+    ".git", ".svn", ".hg",
+
+    # Dependencies and vendored trees
+    "node_modules", "vendor", "third_party", "_vendored",
+    "Pods", "Carthage", "site-packages", ".venv", "venv",
+
+    # Build output
+    "dist", "build", "out", "target", ".next", "cmake-build-*",
+
+    # Caches and tool state
+    "__pycache__", ".cache", "cache", ".gradle", ".m2", ".terraform",
+    ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "*.egg-info",
+
+    # Go module cache, whose entries are <module>@<version>
+    "*@v*",
 ]
 
+# Dot-prefixed directories (.cursor, .vscode, .pyenv, .npm, and whatever
+# the next tool you install creates) hold machine state, not documents, and
+# on a home directory they outnumber everything else. Set this to true to
+# walk them anyway. The directory you name on the command line is always
+# walked, even if it's hidden.
+index_hidden_dirs = false
 # Directories skipped based on a marker file inside them, regardless of
 # what the directory itself is named. A Python virtualenv always has a
 # pyvenv.cfg at its root, even though the venv directory itself can be
-# named anything ("venv", ".venv", "rl-venv", ...), which ignore_dirs'
-# exact-name matching can't catch.
+# named anything ("venv", ".venv", "rl-venv", "my-project-env", ...), which
+# no name pattern can reliably cover.
 ignore_dir_markers = [
     "pyvenv.cfg",
 ]

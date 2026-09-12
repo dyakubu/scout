@@ -104,6 +104,75 @@ func TestShouldSkipDir_ExactNameMatch(t *testing.T) {
 	}
 }
 
+// Hidden directories are the bulk of what makes indexing a home directory
+// useless - editor extensions, language version managers, package caches -
+// so they're skipped without having to be enumerated.
+func TestShouldSkipDir_HiddenSkippedByDefault(t *testing.T) {
+	fi := newTestIndexer(t)
+
+	for _, name := range []string{".cursor", ".vscode", ".pyenv", ".some-tool-invented-tomorrow"} {
+		if !fi.shouldSkipDir("/root", "/root/"+name, name, nil) {
+			t.Errorf("shouldSkipDir(%s) = false, want true", name)
+		}
+	}
+
+	// Naming a hidden directory on the command line is explicit intent, so
+	// the root of the walk is always walked.
+	if fi.shouldSkipDir("/root/.config", "/root/.config", ".config", nil) {
+		t.Error("shouldSkipDir on the root directory itself = true, want false")
+	}
+}
+
+func TestShouldSkipDir_HiddenOptIn(t *testing.T) {
+	fi := newTestIndexer(t)
+	fi.IndexConfig.IndexHiddenDirs = true
+
+	if fi.shouldSkipDir("/root", "/root/.cursor", ".cursor", nil) {
+		t.Error("shouldSkipDir(.cursor) = true with index_hidden_dirs set, want false")
+	}
+	// Entries in IgnoreDirs still apply when hidden directories are walked.
+	if !fi.shouldSkipDir("/root", "/root/.git", ".git", nil) {
+		t.Error("shouldSkipDir(.git) = false, want true - it's still in IgnoreDirs")
+	}
+}
+
+// Directories worth ignoring are often version-stamped, so IgnoreDirs
+// entries are globs. An exact name still behaves exactly.
+func TestShouldSkipDir_GlobPattern(t *testing.T) {
+	fi := newTestIndexer(t)
+	fi.IndexConfig.IgnoreDirs = []string{"node_modules", "cmake-build-*", "*@v*", "ms-python.*"}
+
+	skip := []string{
+		"node_modules",
+		"cmake-build-debug",
+		"cobra@v1.8.0", // Go module cache entry
+		"ms-python.debugpy-2026.6.0-darwin-arm64", // editor extension
+	}
+	for _, name := range skip {
+		if !fi.shouldSkipDir("/root", "/root/"+name, name, nil) {
+			t.Errorf("shouldSkipDir(%s) = false, want true", name)
+		}
+	}
+
+	keep := []string{"src", "cmake", "modules", "python"}
+	for _, name := range keep {
+		if fi.shouldSkipDir("/root", "/root/"+name, name, nil) {
+			t.Errorf("shouldSkipDir(%s) = true, want false", name)
+		}
+	}
+}
+
+// A malformed glob shouldn't silently stop matching - it's almost
+// certainly meant as a literal directory name.
+func TestShouldSkipDir_MalformedPatternFallsBackToName(t *testing.T) {
+	fi := newTestIndexer(t)
+	fi.IndexConfig.IgnoreDirs = []string{"weird[name"}
+
+	if !fi.shouldSkipDir("/root", "/root/weird[name", "weird[name", nil) {
+		t.Error("a malformed pattern should still match its literal name")
+	}
+}
+
 func TestShouldSkipDir_Marker(t *testing.T) {
 	fi := newTestIndexer(t)
 
