@@ -1,6 +1,6 @@
 # scout
 
-Scout is a local-first semantic search engine for your own filesystem, a `grep` that understands meaning instead of just matching characters. Point it at a directory, and it indexes text (and, optionally, images) into vector embeddings so you can later search by what a file *means*, not just what substring it contains, entirely on your own machine, with no cloud API calls and no data leaving your disk.
+Scout is a local-first semantic search engine for your own filesystem, a `grep` that understands meaning instead of just matching characters. Point it at a directory, and it indexes your text, PDFs, Word documents and photos into vector embeddings so you can later search by what a file *means*, not just what substring it contains, entirely on your own machine, with no cloud API calls and no data leaving your disk.
 
 ```
 $ scout index ~/notes
@@ -68,7 +68,7 @@ scout index <dir>
 
         ▼
 
-    chunk each file's text (fixed-size, line-tracked)
+    chunk each file's text (bounded by the model's token budget)
 
         │
 
@@ -109,7 +109,7 @@ Everything above runs as a single self-contained Go binary. There's no server, n
 
 | Package             | Responsibility                                                                                                                                                               |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `indexer/`          | Walks a directory (honoring `.gitignore`), chunks file text, extracts text from PDFs, and drives concurrent embedding via a bounded worker pool + single DB-writer goroutine |
+| `indexer/`          | Walks a directory (honoring `.gitignore`), extracts text from PDFs and Word documents, chunks it against the model's token budget, and drives concurrent embedding via a bounded worker pool + single DB-writer goroutine |
 | `embedder/`         | Loads a local ONNX model via cgo (`onnxruntime_go`) and runs batched inference, mean-pooling token outputs into one L2-normalized vector per chunk                           |
 | `tokenizer/`        | A pure-Go tokenizer (no cgo, no Rust) that turns chunk text into the model's expected `input_ids`/`attention_mask`/`token_type_ids`                                          |
 | `db/`               | SQLite schema: `files`, `chunks`, and `vec_chunks` (a [sqlite-vec](https://github.com/asg017/sqlite-vec) virtual table holding the actual embedding vectors)                 |
@@ -130,7 +130,7 @@ The tradeoff is that scout ships a real (if small, quantized) ML model and a nat
 
 ### Image search (media worker)
 
-Scout can also embed images using [CLIP](https://openai.com/research/clip), so `scout find` can turn up matching photos alongside matching text. It runs as a **separate Python subprocess** (`media/worker.py`) that scout's `mediaworker` package talks to over stdin/stdout, one JSON job per line.
+Scout can also embed images using [CLIP](https://openai.com/research/clip), so `scout find` can turn up matching photos alongside matching text. JPEG, PNG and HEIC are indexed by default - HEIC being what iPhones and macOS screenshots produce. It runs as a **separate Python subprocess** (`media/worker.py`) that scout's `mediaworker` package talks to over stdin/stdout, one JSON job per line.
 
 The worker runs CLIP ViT-B/32 through ONNX Runtime rather than PyTorch. It's the same model either way, but the quantized ONNX towers are ~126MB against torch's ~605MB checkpoint, the dependencies are ~144MB installed against ~764MB, and the worker starts in ~0.5s instead of ~2.4s - which scout pays on every `find`, since the query embed waits on the worker's model load. Quantization costs some fidelity: embeddings sit 0.94-0.99 cosine from the fp32 torch ones, close enough to rank the same. `media/test_clip.py` pins that against reference vectors captured from the original torch implementation.
 
@@ -171,7 +171,7 @@ third_party/onnxruntime/             ONNX Runtime, loaded at runtime
 media/                               image search worker + its Python interpreter
 ```
 
-That comes to ~220MB compressed, ~430MB unpacked, a bit over half of which is image search. Deleting `media/` and `models/media` leaves text search working exactly as before, if you'd rather not carry it.
+That comes to ~225MB compressed, ~430MB unpacked, a bit over half of which is image search. Deleting `media/` and `models/media` leaves text search working exactly as before, if you'd rather not carry it.
 
 Supported platforms: macOS (Apple Silicon), Linux (x86_64/arm64), and Windows (x86_64).
 
@@ -241,12 +241,18 @@ skipped without re-embedding.
 
 ```
 $ scout index ~/notes
-Indexed 3 file(s), 3 chunk(s) embedded, in 20ms
+  7.4s  indexed 37, 2855 chunks  queues.md          <- rewrites while it runs
+Indexed 40 file(s), 3089 chunk(s) embedded, in 7.5s
 
 $ scout index ~/notes          # nothing changed since last time
 Indexed 0 file(s), 0 chunk(s) embedded, in 0s
-  3 file(s) unchanged, skipped
+  40 file(s) unchanged, skipped
 ```
+
+A progress line rewrites itself while the run is in flight, showing elapsed
+time, counts and the file in hand - useful because a single large PDF can
+occupy a worker for minutes without finishing a file. It's only drawn for a
+terminal, so piping stays clean.
 
 The summary lines below the first are only printed when they're non-zero, so a
 run that reports nothing but the first line had nothing to skip.
@@ -312,10 +318,11 @@ $ scout config set search.max_results 3
 search.max_results = 3
 ```
 
-List-valued fields - `index.allowed_extensions`, `index.ignore_dirs`,
-`index.ignore_patterns`, `index.ignore_dir_markers`,
-`media.allowed_extensions` - can't be set from the command line. Edit them in
-the file (`scout config path` tells you where it is).
+Fields holding a list or a table - `index.allowed_extensions`,
+`index.ignore_dirs`, `index.ignore_patterns`, `index.ignore_dir_markers`,
+`index.max_file_size_mb_by_type`, `media.allowed_extensions` - can be read but
+not set from the command line, since they don't fit in a single value. Edit
+them in the file (`scout config path` tells you where it is).
 
 The config file is created from a built-in default the first time scout runs,
 and is never rewritten after that. New settings added by a later version of
@@ -393,6 +400,6 @@ Media embeddings record which model produced them and are only compared against 
 Scout is an early, personal-scale project, not yet hardened for huge corpora or concurrent multi-user use. In particular:
 
 * `scout sync` is a placeholder; re-run `scout index` instead.
-* Chunking is fixed-size, not semantic (no sentence/paragraph awareness yet).
+* Chunking splits on size rather than meaning - no sentence or paragraph awareness yet, though chunks are sized against the model's real token budget so nothing is silently truncated.
 * The kNN search pulls a bounded candidate pool before filtering, so a narrow `--restrict` can occasionally return fewer results than `--max`.
-* Image search adds ~185MB to the release archive, including a Python interpreter, and text-only users pay for it too.
+* Image search adds ~190MB to the release archive, including a Python interpreter, and text-only users pay for it too.

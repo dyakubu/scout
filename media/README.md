@@ -4,6 +4,10 @@ Embeds images and search queries with CLIP ViT-B/32, for scout's image
 search. Runs as a subprocess of scout, one JSON job per line over stdin and
 stdout.
 
+Reads JPEG, PNG and HEIC. HEIC needs `pillow-heif`, whose opener `clip.py`
+registers at import - Pillow has no HEIF support of its own, and the wheels
+bundle libheif so nothing is required on the user's machine.
+
 ```
 worker.py    the stdio protocol and job loop
 clip.py      model loading, preprocessing, inference
@@ -32,13 +36,13 @@ The model is the same either way. The runtime around it is not:
 
 |                        | torch  | onnxruntime |
 | ---------------------- | ------ | ----------- |
-| dependencies installed | 764MB  | 144MB       |
+| dependencies installed | 764MB  | 173MB       |
 | model files            | 605MB  | 126MB       |
 | worker startup         | ~2.4s  | ~0.5s       |
 
 Size is what made this worth doing: at ~1.4GB installed, the worker could
 not ship inside scout's release archive, and image search stayed a
-development-only feature. At ~270MB it ships.
+development-only feature. At ~300MB it ships.
 
 Startup matters because scout pays it per invocation. `Searcher.searchMedia`
 blocks on the first job, which the worker can't answer until its model is
@@ -118,6 +122,9 @@ model is present.
   so the user's Python environment can't reach into it, while leaving the
   script's own directory on `sys.path` - `worker.py` imports `clip.py` from
   there.
+- **HEIC works only because of an import side effect.** `clip.py` calls
+  `register_heif_opener()` at import; drop that and `Image.open` stops
+  recognising `.heic` without any other symptom.
 - **No network calls, ever.** Model files are fetched at build time by
   `scripts/fetch-deps.sh` and shipped in the archive. A missing file is an
   error naming it, not a download.

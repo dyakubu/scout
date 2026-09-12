@@ -85,6 +85,20 @@ var fields = map[string]field{
 			return strings.Join(pairs, ", ")
 		},
 	},
+	"index.index_hidden_dirs": {
+		get: func(cfg *Config) string { return strconv.FormatBool(cfg.Index.IndexHiddenDirs) },
+		set: func(cfg *Config, value string) error {
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("expected true or false, got %q", value)
+			}
+			cfg.Index.IndexHiddenDirs = b
+			return nil
+		},
+	},
+	"index.ignore_dir_markers": {
+		get: func(cfg *Config) string { return strings.Join(cfg.Index.IgnoreDirMarkers, ", ") },
+	},
 	"index.ignore_dirs": {
 		get: func(cfg *Config) string { return strings.Join(cfg.Index.IgnoreDirs, ", ") },
 	},

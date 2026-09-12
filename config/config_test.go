@@ -341,3 +341,30 @@ func TestLoad_SizeOverridesDecodeWithoutSwallowingSiblings(t *testing.T) {
 		t.Error("IgnoreDirMarkers is empty - the sub-table swallowed it")
 	}
 }
+
+// Every key in the shipped config should be readable through `scout config
+// get`. A setting that exists in the file but not in the field registry is
+// invisible from the command line, which is easy to miss when adding one.
+func TestFields_CoverEveryShippedKey(t *testing.T) {
+	sandboxHome(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	for _, key := range []string{
+		"embedder.model_path", "embedder.tokenizer_path", "embedder.ort_library_path",
+		"embedder.batch_size",
+		"media.model_dir", "media.allowed_extensions",
+		"db.path",
+		"index.max_file_size_mb", "index.max_file_size_mb_by_type", "index.allowed_extensions",
+		"index.ignore_dirs", "index.ignore_dir_markers", "index.ignore_patterns",
+		"index.index_hidden_dirs",
+		"search.max_results", "search.max_media_results", "search.max_results_per_file",
+	} {
+		if _, err := Get(cfg, key); err != nil {
+			t.Errorf("config get %s: %v", key, err)
+		}
+	}
+}
