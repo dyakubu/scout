@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dyakubu/scout/config"
@@ -203,15 +204,31 @@ func TestChunkText_Basics(t *testing.T) {
 	}
 }
 
+// lockDir makes dir unreadable for the rest of the test and restores it
+// afterwards. It skips the test where that can't be arranged: as root,
+// whose access checks are bypassed, and on Windows, where os.Chmod only
+// toggles the read-only attribute and a directory stays listable.
+func lockDir(t *testing.T, dir string) {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Chmod cannot make a directory unreadable on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root, which can read a 0000 directory anyway")
+	}
+
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+}
+
 // TestIndexDirectory_SkipsUnreadableDirs covers a walk that meets a
 // directory it has no permission to read. Indexing a home directory hits
 // this routinely on macOS (~/.Trash, much of ~/Library), and one such
 // directory used to abort the entire run.
 func TestIndexDirectory_SkipsUnreadableDirs(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("running as root, which can read a 0000 directory anyway")
-	}
-
 	root := t.TempDir()
 
 	// Named so the unreadable directory is walked before "zzz", proving
@@ -233,10 +250,7 @@ func TestIndexDirectory_SkipsUnreadableDirs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(locked, "secret.txt"), []byte("secret"), 0o644); err != nil {
 		t.Fatalf("writing into locked dir: %v", err)
 	}
-	if err := os.Chmod(locked, 0o000); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
-	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	lockDir(t, locked)
 
 	fi := newTestIndexer(t)
 	fi.Embedder = &embeddertest.Embedder{
@@ -266,15 +280,11 @@ func TestIndexDirectory_SkipsUnreadableDirs(t *testing.T) {
 // skip what it stumbles into, but being pointed at a directory it can't
 // read has to fail rather than report an empty run.
 func TestIndexDirectory_UnreadableRootIsAnError(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("running as root, which can read a 0000 directory anyway")
-	}
-
 	root := filepath.Join(t.TempDir(), "locked")
-	if err := os.Mkdir(root, 0o000); err != nil {
+	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatalf("creating locked dir: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(root, 0o755) })
+	lockDir(t, root)
 
 	fi := newTestIndexer(t)
 	fi.Embedder = &embeddertest.Embedder{}
