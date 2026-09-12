@@ -304,3 +304,40 @@ func TestGetSet_UnknownKey(t *testing.T) {
 		t.Error("Set with an unknown key: expected an error, got none")
 	}
 }
+
+// The shipped default config has to decode its per-type size overrides
+// without disturbing the keys around them. A TOML sub-table placed before
+// the end of its parent section silently captures every key that follows,
+// which is exactly how this table can go wrong.
+func TestLoad_SizeOverridesDecodeWithoutSwallowingSiblings(t *testing.T) {
+	sandboxHome(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Index.MaxFileSizeMB != 2 {
+		t.Errorf("MaxFileSizeMB = %d, want the 2MB fallback", cfg.Index.MaxFileSizeMB)
+	}
+
+	for ext, want := range map[string]int{"pdf": 20, "docx": 10, "heic": 25} {
+		if got := cfg.Index.MaxFileSizeMBByType[ext]; got != want {
+			t.Errorf("MaxFileSizeMBByType[%q] = %d, want %d", ext, got, want)
+		}
+	}
+
+	// The keys that follow the table in the file must still be their own.
+	if len(cfg.Index.AllowedExtensions) == 0 {
+		t.Error("AllowedExtensions is empty - the sub-table swallowed it")
+	}
+	if len(cfg.Index.IgnoreDirs) == 0 {
+		t.Error("IgnoreDirs is empty - the sub-table swallowed it")
+	}
+	if len(cfg.Index.IgnorePatterns) == 0 {
+		t.Error("IgnorePatterns is empty - the sub-table swallowed it")
+	}
+	if len(cfg.Index.IgnoreDirMarkers) == 0 {
+		t.Error("IgnoreDirMarkers is empty - the sub-table swallowed it")
+	}
+}

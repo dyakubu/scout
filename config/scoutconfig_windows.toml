@@ -32,8 +32,10 @@ path = "scout.db"
 
 [index]
 # Files larger than this are skipped (recorded in `files` with
-# status = "skipped") rather than embedded.
+# status = "skipped") rather than embedded. Applies to any extension not
+# overridden below.
 max_file_size_mb = 2
+
 
 # Closed list by design: a file is only indexed if its extension is here.
 # Add an extension to opt it in - safer than trying to enumerate every
@@ -94,6 +96,25 @@ ignore_patterns = [
     "Thumbs.db",
     "desktop.ini",
 ]
+
+# Per-extension overrides on max_file_size_mb, keyed without a leading dot
+# and matched case-insensitively. Formats that carry their own media are
+# mostly container - a PDF's page images, a docx's pictures, a photo's full
+# sensor resolution - so they need far more room than source files.
+#
+# Images are generous because embedding one costs the same whatever its
+# size: CLIP resizes everything to 224x224 before it looks at it, so a
+# tight limit there drops photos without saving any work.
+#
+# This table has to stay at the end of [index]: everything after a TOML
+# sub-table header belongs to that sub-table.
+[index.max_file_size_mb_by_type]
+pdf  = 20
+docx = 10
+jpg  = 25
+jpeg = 25
+png  = 25
+heic = 25
 
 [search]
 # Default result counts for `scout find`, overridable per-call with

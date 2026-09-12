@@ -51,7 +51,16 @@ type SearchConfig struct {
 }
 
 type IndexConfig struct {
-	MaxFileSizeMB     int      `toml:"max_file_size_mb"`
+	// MaxFileSizeMB is the fallback ceiling for any extension not listed
+	// in MaxFileSizeMBByType.
+	MaxFileSizeMB int `toml:"max_file_size_mb"`
+
+	// MaxFileSizeMBByType overrides that per file extension, keyed without
+	// a leading dot and matched case-insensitively. A separate key rather
+	// than making MaxFileSizeMB a table, which would fail to decode every
+	// config file that already has it as a number.
+	MaxFileSizeMBByType map[string]int `toml:"max_file_size_mb_by_type"`
+
 	AllowedExtensions []string `toml:"allowed_extensions"`
 	IgnoreDirs        []string `toml:"ignore_dirs"`
 	IgnorePatterns    []string `toml:"ignore_patterns"`

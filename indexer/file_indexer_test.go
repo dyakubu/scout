@@ -435,3 +435,44 @@ func TestIndexDirectory_UnreadableRootIsAnError(t *testing.T) {
 		t.Errorf("stats report work that never happened: %+v", stats)
 	}
 }
+
+func TestMaxFileSizeBytes(t *testing.T) {
+	fi := newTestIndexer(t)
+	fi.IndexConfig.MaxFileSizeMB = 2
+	fi.IndexConfig.MaxFileSizeMBByType = map[string]int{"pdf": 20, "heic": 25}
+
+	const mb = 1024 * 1024
+
+	tests := []struct {
+		path string
+		want int64
+	}{
+		{"/notes/todo.txt", 2 * mb},       // unlisted, falls back
+		{"/notes/paper.pdf", 20 * mb},     // overridden
+		{"/photos/IMG_1.heic", 25 * mb},   // overridden
+		{"/photos/IMG_2.HEIC", 25 * mb},   // extensions match case-insensitively
+		{"/notes/Makefile", 2 * mb},       // no extension at all
+		{"/notes/archive.tar.gz", 2 * mb}, // only the final extension counts
+	}
+
+	for _, tt := range tests {
+		if got := fi.maxFileSizeBytes(tt.path); got != tt.want {
+			t.Errorf("maxFileSizeBytes(%q) = %d MB, want %d MB", tt.path, got/mb, tt.want/mb)
+		}
+	}
+}
+
+// An unset fallback means no limit, and an override shouldn't resurrect one
+// for the types it doesn't name.
+func TestMaxFileSizeBytes_ZeroMeansUnlimited(t *testing.T) {
+	fi := newTestIndexer(t)
+	fi.IndexConfig.MaxFileSizeMB = 0
+	fi.IndexConfig.MaxFileSizeMBByType = map[string]int{"pdf": 20}
+
+	if got := fi.maxFileSizeBytes("/notes/todo.txt"); got != 0 {
+		t.Errorf("maxFileSizeBytes with no fallback = %d, want 0 (unlimited)", got)
+	}
+	if got := fi.maxFileSizeBytes("/notes/paper.pdf"); got != 20*1024*1024 {
+		t.Errorf("maxFileSizeBytes(pdf) = %d, want the override to still apply", got)
+	}
+}

@@ -240,10 +240,24 @@ func (fi *FileIndexer) classifyFile(rootDir, path, name string, gitignoreRules [
 	return fileKindNone
 }
 
-// maxFileSizeBytes returns the configured max file size in bytes, or 0 if
-// MaxFileSizeMB is unset, meaning no limit.
-func (fi *FileIndexer) maxFileSizeBytes() int64 {
-	return int64(fi.IndexConfig.MaxFileSizeMB) * 1024 * 1024
+// maxFileSizeBytes returns the size ceiling for path in bytes, or 0 for no
+// limit. An extension listed in MaxFileSizeMBByType uses that value,
+// otherwise the MaxFileSizeMB fallback.
+//
+// The limit is on the file, not on the text extracted from it. Formats
+// that carry their own media - a PDF's page images, a docx's pictures -
+// are mostly container, so one ceiling for everything is either too small
+// for them or too large for source files.
+func (fi *FileIndexer) maxFileSizeBytes(path string) int64 {
+	limit := fi.IndexConfig.MaxFileSizeMB
+
+	if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."); ext != "" {
+		if override, ok := fi.IndexConfig.MaxFileSizeMBByType[ext]; ok {
+			limit = override
+		}
+	}
+
+	return int64(limit) * 1024 * 1024
 }
 
 // IndexDirectory walks a directory and processes each file, skipping
@@ -453,7 +467,8 @@ func (fi *FileIndexer) processFile(path string, emitter Emitter) (ProcessFileRes
 		return ProcessFileResult{}, err
 	}
 
-	if maxSize := fi.maxFileSizeBytes(); maxSize > 0 && info.Size() > maxSize {
+	if maxSize := fi.maxFileSizeBytes(path); maxSize > 0 && info.Size() > maxSize {
+		fi.Logger.Printf("skipping %s: %d bytes exceeds the %d MB limit for its type", path, info.Size(), maxSize/(1024*1024))
 		return ProcessFileResult{Skipped: true}, nil
 	}
 
@@ -569,7 +584,8 @@ func (fi *FileIndexer) processMediaFile(path string, emitter Emitter) (ProcessFi
 		return ProcessFileResult{}, err
 	}
 
-	if maxSize := fi.maxFileSizeBytes(); maxSize > 0 && info.Size() > maxSize {
+	if maxSize := fi.maxFileSizeBytes(path); maxSize > 0 && info.Size() > maxSize {
+		fi.Logger.Printf("skipping %s: %d bytes exceeds the %d MB limit for its type", path, info.Size(), maxSize/(1024*1024))
 		return ProcessFileResult{Skipped: true}, nil
 	}
 
